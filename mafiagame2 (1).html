@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#100F0E">
+<title>Mafia Multiplayer</title>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  /* ===== MAFIA design system: Private Club at Night. Charcoal, antique bronze, ivory.
+     Role colours are a local accent layer (body[data-role]) and never leave the player's own screen. ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root {
+    color-scheme: dark;
+    --bg1:#100F0E; --bg2:#1A1815; --card:#211E1A; --card-hi:#2C2822; --field:#151311; --line:#3A332B; --line-hi:#5C4F3C;
+    --txt:#F1EBDF; --mut:#B5AEA2;
+    --bronze:#B08D57; --brass:#D6BA83; --gold:#D6BA83; --burgundy:#8A2F38; --burgundy-hi:#A03B46;
+    --focus:#F2D9A0; --glow:rgba(176,141,87,.06);
+    --c-civilian:#5EDC82; --c-special:#F4C95A; --c-mafia:#F06565; --c-shapeshifter:#F2619B; --c-doctor:#4FD3E6; --c-detective:#94A3B8;
+    --role-accent:#D6BA83; --role-soft:rgba(176,141,87,.14);
+    --r:12px; --r-sm:8px;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Times New Roman', serif;
+  }
+  /* role accent: only ever set from the player's OWN role (body[data-role] / .role[data-rt]) */
+  body[data-role="civilian"], .role[data-rt="civilian"]         { --role-accent:#5EDC82; --role-soft:rgba(94,220,130,.13); }
+  body[data-role="special"], .role[data-rt="special"]           { --role-accent:#F4C95A; --role-soft:rgba(244,201,90,.13); }
+  body[data-role="mafia"], .role[data-rt="mafia"]               { --role-accent:#F06565; --role-soft:rgba(240,101,101,.14); }
+  body[data-role="shapeshifter"], .role[data-rt="shapeshifter"] { --role-accent:#F2619B; --role-soft:rgba(242,97,155,.14); }
+  body[data-role="doctor"], .role[data-rt="doctor"]             { --role-accent:#4FD3E6; --role-soft:rgba(79,211,230,.13); }
+  body[data-role="detective"], .role[data-rt="detective"]       { --role-accent:#94A3B8; --role-soft:rgba(148,163,184,.16); }
+  /* day: subtle warm bronze. night: deeper, moonlit. */
+  body.day   { --bg1:#17120D; --bg2:#2A2218; --card:#2A2319; --card-hi:#352C20; --field:#1B1610; --line:#4E4230; --line-hi:#7A6745; --glow:rgba(214,170,98,.22); }
+  body.night { --bg1:#060608; --bg2:#0C0D13; --card:#12131A; --card-hi:#1A1C27; --field:#0A0B10; --line:#262837; --line-hi:#40445C; --glow:rgba(110,125,185,.13); }
+
+  html, body { min-height: 100%; }
+  body { font-family: var(--sans); font-size: 1rem; line-height: 1.5; background-color: var(--bg1); color: var(--txt); display: flex; justify-content: center;
+         padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(ellipse 90% 50% at 50% -5%, var(--glow), transparent 70%), linear-gradient(180deg, var(--bg2), var(--bg1) 65%); }
+  body.night::before {
+    background:
+      radial-gradient(1.2px 1.2px at 12% 14%, rgba(255,255,255,.55), transparent), radial-gradient(1px 1px at 27% 31%, rgba(255,255,255,.4), transparent),
+      radial-gradient(1.2px 1.2px at 41% 9%, rgba(255,255,255,.5), transparent), radial-gradient(1px 1px at 63% 22%, rgba(255,255,255,.4), transparent),
+      radial-gradient(1.2px 1.2px at 74% 41%, rgba(255,255,255,.35), transparent), radial-gradient(1px 1px at 91% 28%, rgba(255,255,255,.45), transparent),
+      radial-gradient(1px 1px at 18% 58%, rgba(255,255,255,.3), transparent), radial-gradient(1px 1px at 84% 66%, rgba(255,255,255,.3), transparent),
+      radial-gradient(circle at 88% 5%, rgba(150,165,230,.17), transparent 22%),
+      radial-gradient(ellipse 90% 50% at 50% -5%, var(--glow), transparent 70%), linear-gradient(180deg, var(--bg2), var(--bg1) 65%); }
+  button, input, select { font-family: inherit; }
+  .app { width: 100%; max-width: 30rem; padding-bottom: 2rem; }
+  @media (min-width: 640px) { .app { max-width: 40rem; } }
+  @media (min-width: 1024px) { .app:has(.lobby) { max-width: 62rem; } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hidden { display: none !important; }
+
+  /* ---- type ---- */
+  h1 { font-family: var(--serif); font-size: clamp(1.75rem, 8vw, 2.25rem); font-weight: 400; text-align: center; letter-spacing: .18em; line-height: 1.1; margin: 1.5rem 0 .25rem; color: var(--brass); }
+  .sub { text-align: center; color: var(--mut); font-family: var(--serif); font-style: italic; font-size: 1.0625rem; margin-bottom: 1.25rem; }
+  h2, h3 { font-family: var(--serif); font-weight: 400; margin-bottom: .5rem; letter-spacing: .02em; color: var(--txt); }
+  h3 { font-size: 1.1875rem; line-height: 1.3; }
+  .muted { color: var(--mut); font-size: .9375rem; }
+  .hint { color: var(--mut); font-size: .875rem; text-align: center; margin-top: .75rem; }
+  .fl { display: block; font-size: .9375rem; color: var(--mut); margin: .5rem 0 .125rem; }
+  .sect-h { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; }
+  .sect-h h3 { margin: 0; }
+  .count { color: var(--mut); font-size: .9375rem; font-variant-numeric: tabular-nums; }
+  .section-h { font-size: .9375rem; color: var(--brass); font-weight: 600; margin: 1rem 0 .5rem; }
+
+  /* ---- form fields ---- */
+  input, select { width: 100%; min-height: 3rem; padding: .75rem .875rem; margin: .375rem 0; border-radius: var(--r-sm); border: 1px solid var(--line-hi); background: var(--field); color: var(--txt); font-size: 1rem; }
+  input::placeholder { color: #8C857A; }
+  select { width: auto; min-width: 8.5rem; margin: 0; }
+  .code-input { text-transform: uppercase; letter-spacing: .3em; font-family: var(--serif); font-size: 1.25rem; text-align: center; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  input:focus-visible, select:focus-visible { border-color: var(--focus); }
+
+  /* ---- buttons: primary (default), secondary (.gray), danger, selected (.sel), pressed (:active), disabled ---- */
+  button { display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%; min-height: 3rem; padding: .75rem 1rem; margin: .375rem 0;
+    border: 1px solid #DDC38F; border-radius: var(--r-sm); background: linear-gradient(180deg, #C2A068, #A68350); color: #17120C;
+    font-size: 1rem; font-weight: 600; line-height: 1.2; letter-spacing: .02em; text-align: center; cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 2px 6px rgba(0,0,0,.35); transition: background .15s, border-color .15s, transform .08s; }
+  button:hover { background: linear-gradient(180deg, #CCAA73, #B28F58); }
+  button:active { transform: translateY(1px); background: #957444; box-shadow: inset 0 2px 5px rgba(0,0,0,.4); }
+  button.gray { background: transparent; border-color: var(--line-hi); color: var(--txt); box-shadow: none; }
+  button.gray:hover { background: var(--card-hi); border-color: var(--bronze); }
+  button.gray:active { background: var(--card); box-shadow: inset 0 2px 5px rgba(0,0,0,.35); }
+  button.quiet { color: var(--mut); border-color: var(--line); }
+  button.danger { background: var(--burgundy); border-color: #C0626C; color: #FFF3F3; box-shadow: none; }
+  button.danger:hover { background: var(--burgundy-hi); }
+  button.act { background: var(--role-soft); border-color: var(--role-accent); color: var(--txt); box-shadow: none; }
+  button.act:hover { background: var(--role-soft); filter: brightness(1.3); }
+  button:disabled, button[aria-disabled="true"] { background: var(--card); border-color: var(--line); color: #8C857A; box-shadow: none; cursor: not-allowed; transform: none; filter: none; }
+  button:disabled:hover, button[aria-disabled="true"]:hover { background: var(--card); }
+
+  .icon-btn { width: 2.75rem; min-height: 2.75rem; height: 2.75rem; padding: 0; margin: 0; border-radius: 50%; font-size: 1.25rem; background: var(--card); border-color: var(--line-hi); color: var(--txt); box-shadow: none; flex: none; }
+  .icon-btn:hover { background: var(--card-hi); border-color: var(--bronze); }
+  .icon-btn[aria-pressed="false"] { opacity: .75; }
+
+  /* ---- cards & alerts ---- */
+  .card { background: var(--card); border-radius: var(--r); padding: 1rem; margin: .75rem 0; border: 1px solid var(--line); }
+  .alert { background: rgba(138,47,56,.28); border: 1px solid #B0505A; color: #F6DADA; padding: .75rem 1rem; border-radius: var(--r-sm); margin: .75rem 0; font-size: .9375rem; }
+  .alert.warn { background: rgba(176,141,87,.12); border-color: var(--bronze); color: var(--brass); }
+
+  /* ---- main menu ---- */
+  .hero { text-align: center; padding: clamp(1rem, 6vh, 2.5rem) 0 .5rem; }
+  .hero-ico { font-size: 2.25rem; line-height: 1; margin-bottom: .5rem; }
+  .hero h1 { font-size: clamp(2.75rem, 14vw, 4rem); letter-spacing: .22em; padding-left: .22em; margin: 0 0 .5rem; text-shadow: 0 0 32px rgba(176,141,87,.28); }
+  .hero .sub { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-bottom: 1rem; font-size: 1.125rem; }
+  .hero .sub::before, .hero .sub::after { content: ""; width: 2.5rem; height: 1px; background: var(--bronze); opacity: .7; }
+  .door .btn-main { min-height: 3.5rem; font-size: 1.125rem; margin-top: .75rem; }
+  .or { display: flex; align-items: center; gap: .75rem; color: var(--mut); font-size: .9375rem; margin: 1.25rem 0 .5rem; }
+  .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .menu-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: .5rem; margin: .75rem 0; }
+  .menu-links button { margin: 0; font-weight: 500; font-size: .9375rem; }
+  .menu-links button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* ---- top bar, phase, timer ---- */
+  .topbar { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin: .25rem 0 .5rem; }
+  .room { display: flex; align-items: baseline; gap: .625rem; min-width: 0; }
+  .room-l { color: var(--mut); font-size: .9375rem; }
+  .room-title { font-family: var(--serif); font-size: 1.375rem; font-weight: 400; margin: 0; }
+  .code { font-family: var(--serif); font-size: 1.375rem; letter-spacing: .28em; color: var(--brass); }
+  .phasebar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .625rem .875rem; margin: .5rem 0 .75rem;
+    border: 1px solid var(--line-hi); border-left: 4px solid var(--role-accent); border-radius: var(--r-sm); background: var(--card); }
+  body.day .phasebar { background: linear-gradient(90deg, rgba(214,170,98,.16), var(--card) 75%); }
+  body.night .phasebar { background: linear-gradient(90deg, rgba(110,125,185,.14), var(--card) 75%); }
+  .pill { font-family: var(--serif); font-size: 1.375rem; line-height: 1.2; color: var(--txt); }
+  .tm { font-family: var(--serif); font-size: 1.875rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--brass);
+    min-width: 5rem; text-align: center; padding: .375rem .75rem; border-radius: var(--r-sm); background: rgba(0,0,0,.3); border: 1px solid var(--line-hi); }
+  .tm:empty { display: none; }
+  .tm.low { color: #FFFFFF; background: #8E2A2A; border-color: #FF9A9A; animation: pulse .8s infinite alternate; }
+  .phasebar.urgent { border-color: #FF7A7A; border-left-color: #FF7A7A; box-shadow: 0 0 0 1px rgba(255,122,122,.5), 0 0 20px rgba(255,90,90,.25); }
+  @keyframes pulse { to { opacity: .6; } }
+
+  /* ---- role card & story ---- */
+  .role { display: flex; gap: .875rem; align-items: center; border-left: 4px solid var(--role-accent); background: linear-gradient(90deg, var(--role-soft), var(--card) 70%); animation: reveal .9s both; }
+  .role .em { font-size: 2.25rem; line-height: 1; }
+  .role b { font-family: var(--serif); font-weight: 400; font-size: 1.375rem; color: var(--role-accent); letter-spacing: .02em; }
+  @keyframes reveal { from { opacity: 0; transform: translateY(8px) scale(.98); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+  #story { margin: .875rem 0; min-height: .625rem; }
+  .line { margin: .625rem 0; font-size: 1.0625rem; line-height: 1.6; color: var(--txt); max-width: 65ch; }
+  .line.phase { font-family: var(--serif); font-size: 1.1875rem; font-style: italic; padding-left: .75rem; border-left: 3px solid var(--role-accent); }
+  .line.role, .line.info { color: var(--role-accent); }
+  .line.role { display: block; background: none; border-left: 0; animation: none; padding: 0; }
+  .w { opacity: 0; display: inline-block; animation: fadeWord .6s forwards; }
+  @keyframes fadeWord { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+  /* ---- prompts, status, grids ---- */
+  .prompt { font-family: var(--serif); font-size: 1.1875rem; margin: 1rem 0 .25rem; }
+  .status { display: flex; align-items: center; gap: .5rem; padding: .625rem .875rem; margin: .75rem 0; border: 1px dashed var(--line-hi); border-radius: var(--r-sm); color: var(--mut); font-size: .9375rem; }
+  .status.yes { border-style: solid; border-color: #3E7A52; color: #B5EFC6; background: rgba(94,220,130,.08); }
+  .prompt-card { background: var(--role-soft); border: 1px solid var(--role-accent); padding: 1rem; border-radius: var(--r); margin: .75rem 0; }
+  .prompt-card h3 { color: var(--role-accent); margin-bottom: .5rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5rem), 1fr)); gap: .5rem; margin: .625rem 0; }
+  .grid button { justify-content: flex-start; text-align: left; min-width: 0; min-height: 3.5rem; margin: 0; padding: .5rem .75rem; background: var(--card); border: 1px solid var(--line-hi); color: var(--txt); font-weight: 500; box-shadow: none; }
+  .grid button:hover { border-color: var(--role-accent); background: var(--role-soft); }
+  .grid button:active { background: var(--role-soft); box-shadow: inset 0 2px 5px rgba(0,0,0,.35); }
+  .grid button.sel { border-color: var(--role-accent); background: var(--role-soft); box-shadow: inset 4px 0 0 var(--role-accent); }
+  .grid button.sel::after { content: "✓"; margin-left: auto; color: var(--role-accent); font-weight: 700; }
+  .grid button.skip { grid-column: 1 / -1; justify-content: center; min-height: 3rem; color: var(--mut); }
+  .gn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---- avatars & player cards ---- */
+  .av { width: 2.5rem; height: 2.5rem; border-radius: 50%; background: radial-gradient(circle at 30% 25%, #3C3227, #1F1B16); border: 1.5px solid var(--bronze); color: var(--brass);
+    display: inline-flex; align-items: center; justify-content: center; font-family: var(--serif); font-size: 1.125rem; font-weight: 600; flex: none; }
+  .grid .av { width: 2.25rem; height: 2.25rem; }
+  .players { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.75rem), 1fr)); gap: .5rem; }
+  .pc { display: flex; align-items: center; gap: .625rem; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: .5rem .625rem;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .pc.me { border-color: var(--bronze); }
+  .pc.dead { background: transparent; border-style: dashed; }
+  .pc.dead .nm { text-decoration: line-through; color: var(--mut); }
+  .pc.dead .av { border-style: dashed; border-color: #6B655C; color: #8C857A; background: #1A1816; }
+  .pc.dc { border-style: dashed; border-color: #C9954A; }
+  .kick-btn { position: absolute; width: 1px; height: 1px; padding: 0; margin: 0; overflow: hidden; clip: rect(0 0 0 0); }
+  .kick-btn:focus { position: static; width: auto; height: auto; min-height: 2.25rem; clip: auto; flex: none; padding: .25rem .625rem; font-size: .875rem; }
+  .pc-body { min-width: 0; flex: 1; }
+  .nm { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-tags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
+  .tag { display: inline-flex; align-items: center; max-width: 100%; padding: .0625rem .5rem; border-radius: 999px; border: 1px solid var(--line-hi); color: var(--mut);
+    font-size: .8125rem; font-weight: 600; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag.yes { color: #A8EBBC; border-color: #3E7A52; background: rgba(94,220,130,.1); }
+  .tag.wait { border-style: dashed; }
+  .tag.out { border-style: dashed; color: #C8C1B5; }
+  .tag.dc { color: #F2C98A; border-color: #B58343; }
+  .tag.me, .tag.rl { color: var(--brass); border-color: var(--bronze); }
+
+  /* ---- lobby ---- */
+  .lobby { display: block; }
+  .lcol { min-width: 0; }
+  @media (min-width: 1024px) { .lobby { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 0 1.5rem; align-items: start; } }
+  .invite { text-align: center; }
+  .codebtn { display: block; width: 100%; min-height: 0; margin: 0 0 .75rem; padding: 1rem .75rem; background: var(--field); border: 1px dashed var(--bronze); border-radius: var(--r); color: var(--brass); box-shadow: none; }
+  .codebtn:hover { background: #1D1A15; border-color: var(--brass); }
+  .cb-code { display: block; font-family: var(--serif); font-size: clamp(2.5rem, 16vw, 3.75rem); font-weight: 400; line-height: 1; letter-spacing: .28em; padding-left: .28em; user-select: all; }
+  .cb-hint { display: block; margin-top: .5rem; font-size: .9375rem; font-weight: 500; letter-spacing: .02em; color: var(--mut); }
+  .invite .muted { margin-top: .5rem; }
+  .rchips { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .5rem; }
+  .rchips.solo { grid-template-columns: 1fr; }
+  .rchip { position: relative; justify-content: flex-start; width: auto; min-width: 0; min-height: 2.75rem; margin: 0; padding: .5rem .625rem; gap: .5rem; background: transparent; border: 1px solid var(--line-hi);
+    color: var(--mut); font-weight: 500; box-shadow: none; text-align: left; cursor: pointer; }
+  label.rchip { display: flex; align-items: center; border-radius: var(--r-sm); font-size: 1rem; line-height: 1.2; }
+  .rchip input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .rchip .rn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rchip .rtick { margin-left: auto; flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%; border: 1.5px solid var(--line-hi); display: inline-flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 700; color: transparent; }
+  .rchip.on { background: rgba(176,141,87,.13); border-color: var(--bronze); color: var(--txt); }
+  .rchip.on .rtick { background: var(--bronze); border-color: var(--bronze); color: #17120C; }
+  .rchip:hover { background: var(--card-hi); }
+  .rchip.on:hover { background: rgba(176,141,87,.2); }
+  .rchip:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .rchip:focus-within:not(:has(input:focus-visible)):not(:focus-visible) { outline: 0; }
+  .role-info { margin-top: .875rem; padding: .625rem .75rem; min-height: 3.5rem; border-left: 3px solid var(--bronze); background: var(--field); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: .9375rem; }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: 1rem; padding-top: .875rem; border-top: 1px solid var(--line); }
+  .setrow label, .setrow span.lbl { font-weight: 600; }
+  .startbar { position: sticky; bottom: 0; z-index: 5; margin: 1rem -.25rem 0; padding: 1.5rem .25rem .5rem; background: linear-gradient(180deg, transparent, var(--bg1) 45%); }
+  .start-info { text-align: center; color: var(--mut); font-size: .9375rem; margin-bottom: .375rem; }
+  .startbar button { margin: 0; }
+  .start-btn { min-height: 3.5rem; font-size: 1.125rem; letter-spacing: .06em; }
+
+  /* ---- chat: public (bronze edge), ghost (dashed, violet edge), mafia (red edge) ---- */
+  .chat-card { padding: .75rem 1rem; border-left: 4px solid var(--bronze); }
+  .ghost-card { border-style: dashed dashed dashed solid; border-left-color: #A99BD2; }
+  .maf-card { border-color: rgba(240,101,101,.45); border-left-color: var(--c-mafia); }
+  .chat-toggle { display: flex; justify-content: space-between; align-items: center; min-height: 2.75rem; background: transparent; border: 0; box-shadow: none; color: var(--txt); padding: .25rem 0; margin: 0; font-weight: 600; text-align: left; width: 100%; }
+  .chat-toggle:hover, .chat-toggle:active { background: transparent; box-shadow: none; transform: none; }
+  .chat-title { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+  .chat-kind { font-size: .8125rem; font-weight: 600; color: var(--mut); padding: .0625rem .5rem; border: 1px solid var(--line-hi); border-radius: 999px; }
+  .ghost-card .chat-kind { color: #C7BCE6; border-color: #7F73A6; }
+  .maf-card .chat-kind { color: #F5A3A3; border-color: #A85050; }
+  .chat-toggle .chev { font-size: .75rem; opacity: .7; transition: transform .15s; display: inline-block; }
+  .chat-toggle.collapsed .chev { transform: rotate(-90deg); }
+  .chat-badge { background: var(--brass); color: #17120C; border-radius: 10px; padding: .0625rem .5rem; font-size: .8125rem; font-weight: 700; }
+  .chat-body { margin-top: .5rem; }
+  .chat-note { font-size: .875rem; margin-bottom: .5rem; }
+  .chat-messages-wrap { position: relative; }
+  .chat-messages { background: var(--field); border: 1px solid var(--line); border-radius: var(--r-sm); padding: .5rem .75rem; min-height: 5.5rem; max-height: 12rem; overflow-y: auto; font-size: .9375rem; line-height: 1.45; margin-bottom: .5rem; }
+  .msg { padding: .25rem 0; overflow-wrap: anywhere; }
+  .msg + .msg { border-top: 1px solid rgba(255,255,255,.05); }
+  .msg .who { font-weight: 700; color: var(--brass); margin-right: .4em; }
+  .ghost-card .msg .who { color: #C7BCE6; }
+  .ghost-card .msg .txt { color: var(--mut); }
+  .maf-card .msg .who { color: #F5A3A3; }
+  .row { display: flex; gap: .5rem; align-items: stretch; }
+  .row input { flex: 1; min-width: 0; margin: 0; }
+  .row button { width: auto; flex: none; margin: 0; padding: 0 1.25rem; }
+  .chat-new-btn { position: absolute; bottom: .75rem; left: 50%; transform: translateX(-50%); width: auto; min-height: 2.25rem; padding: .375rem .875rem; margin: 0; background: var(--brass); color: #17120C; font-size: .875rem; font-weight: 700; border-radius: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .chat-new-btn:hover { background: var(--brass); }
+
+  /* ---- game over, credits, overlay ---- */
+  .win { text-align: center; font-family: var(--serif); font-size: 1.5rem; color: var(--brass); border-color: var(--bronze); padding: 1.25rem 1rem; }
+  .game-credits { text-align: center; margin: 1.5rem 0 .5rem; padding: .625rem .5rem; color: var(--mut); font-size: .875rem; line-height: 1.6; }
+  .game-credits small { display: block; margin-top: .25rem; font-size: .8125rem; }
+  .credit-row { display: flex; justify-content: space-between; gap: .75rem; padding: .5rem 0; border-bottom: 1px solid var(--line); font-size: 1rem; }
+  .credit-row:last-child { border-bottom: 0; }
+  .credit-row span:first-child { color: var(--mut); }
+  .credit-row span:last-child { text-align: right; }
+  #ov { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; padding: 1.25rem; z-index: 50; }
+  #ov .card { max-width: 22rem; width: 100%; margin: 0; text-align: center; border-color: var(--line-hi); }
+  #ov .muted { margin-bottom: .75rem; }
+
+  /* ---- small screens (down to 320px): nothing may overflow sideways ---- */
+  @media (max-width: 380px) {
+    body { padding-left: max(.75rem, env(safe-area-inset-left)); padding-right: max(.75rem, env(safe-area-inset-right)); }
+    .card { padding: .875rem; }
+    .tm { min-width: 4.25rem; font-size: 1.625rem; padding: .375rem .5rem; }
+    .pill { font-size: 1.25rem; }
+    .row button { padding: 0 1rem; }
+  }
+  @media (max-width: 340px) { .setrow { flex-direction: column; align-items: stretch; } select { width: 100%; } }
+
+  /* ---- reduced motion: no animation, no smooth transitions; the low-time warning stays as a static strong style ---- */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+    .w { opacity: 1; animation: none; }
+    .tm.low { animation: none; }
+  }
+</style>
+</head>
+<body>
+<main class="app" id="app"></main>
+
+<script>
+const $ = id => document.getElementById(id);
+const app = $('app');
+const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
+/* ============================================================
+   SOUND ENGINE: Web Audio synthesizer, no files needed
+   ============================================================ */
+const SFX = (() => {
+  let ctx = null, enabled = true;
+  function unlock() {
+    try {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') ctx.resume();
+    } catch (e) { enabled = false; }
+  }
+  function tone(freq, dur, type = 'sine', vol = 0.1, slideTo = null) {
+    if (!enabled || !ctx) return;
+    try {
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + dur);
+    } catch (e) {}
+  }
+  const chord = (fs, dur, type, vol) => fs.forEach(f => tone(f, dur, type, vol));
+  return {
+    unlock,
+    setEnabled(v) { enabled = v; },
+    isEnabled: () => enabled,
+    click()  { tone(880, 0.04, 'square', 0.05); },
+    ping()   { chord([880, 1320], 0.14, 'sine', 0.07); },
+    night()  { chord([110, 165], 0.55, 'sine', 0.10); },
+    day()    { chord([440, 660], 0.30, 'triangle', 0.08); },
+    kill()   { tone(200, 0.45, 'sawtooth', 0.12, 60); },
+    save()   { chord([523, 659, 784], 0.30, 'sine', 0.09); },
+    yourTurn(){ chord([988, 1319], 0.18, 'sine', 0.09); },
+    win()    { chord([523, 659, 784, 1047], 0.6, 'sine', 0.10); },
+    lose()   { chord([220, 174, 146], 0.55, 'sawtooth', 0.10); }
+  };
+})();
+try { if (localStorage.getItem('mafia-muted') === '1') SFX.setEnabled(false); } catch(e) {}
+['click', 'touchstart', 'keydown'].forEach(ev => document.addEventListener(ev, SFX.unlock, { once: true, passive: true }));
+
+const ROLES = {
+  mafia: ['Mafia', 'Kill one player each night.', '🔪'],
+  granny: ['Granny', 'If mafia picks you, the mafia dies instead.', '👵'],
+  doctor: ['Doctor', 'Save one player each night.', '💉'],
+  detective: ['Detective', 'Investigate one player each night.', '🕵️'],
+  civilian: ['Civilian', 'Find the mafia and vote them out.', '🧑‍🌾']
+};
+ROLES.jester = ['Jester', 'Get voted out during the day to win the game.', '🤡'];
+ROLES.shapeshifter = ['Shapeshifter', 'A secret Mafia. Once per game, if voted out, swap names with another Mafia who dies in your place. Needs 7+ players.', '👤'];
+ROLES.guard = ['Guard', 'Each night, protect one player from the Mafia. Cannot protect yourself.', '🛡️'];
+ROLES.judge = ['Judge', 'Once per game: when exactly two players tie for execution, you may call a retrial.', '⚖️'];
+ROLES.mayor = ['Mayor', 'Your vote counts double. Your identity stays secret.', '🏛️'];
+ROLES.rebel = ['Rebel', 'Once per game: refuse your own execution. You lose your next day vote.', '✊'];
+ROLES.oracle = ['Oracle', 'Once per game at night: learn whether two players are in the same faction.', '🔮'];
+const ACTIVE_ROLES = ['mafia', 'shapeshifter', 'doctor', 'guard', 'detective', 'oracle'];
+const OPTIONAL_ROLES = ['doctor', 'detective', 'granny', 'jester', 'shapeshifter', 'guard', 'judge', 'mayor', 'rebel', 'oracle'];
+const DEFAULT_OPTS = { doctor: true, detective: true, granny: true, jester: false, shapeshifter: false, guard: false, judge: false, mayor: false, rebel: false, oracle: false, time: 90 };
+const needsAct = p => p.alive && ACTIVE_ROLES.includes(p.role) && !(p.role === 'oracle' && p.oracleUsed);
+const HOW_TO_PLAY = [
+  { h: 'What is Mafia?', p: 'Mafia is a game about lying and guessing. Some players are bad guys (the Mafia). Most are good guys (the Civilians). Nobody knows who anyone is… except the Mafia know each other.' },
+  { h: '🌙 Night', p: 'The Mafia pick one person to kill. The Doctor picks one person to save. The Detective picks one person to check. Then morning comes and everyone finds out what happened.' },
+  { h: '☀️ Day', p: 'Everyone talks, argues, and votes for who they think is Mafia. The player with the most votes is kicked out, and their role is revealed.' },
+  { h: '🔪 Mafia', p: 'Kill one player each night. You and the other Mafia know each other.' },
+  { h: '💉 Doctor', p: 'Save one person each night. If you save the same person the Mafia kills, nobody dies. You can save yourself.' },
+  { h: '🕵️ Detective', p: 'Each night, check one player. You find out if they are Mafia or not. You cannot check yourself.' },
+  { h: '🧑‍🌾 Civilian', p: 'No special power. Just talk, listen, and vote. Watch for lies!' },
+  { h: '🤡 Jester (optional)', p: 'You win alone if the town votes you out. Act suspicious, but not too suspicious!' },
+  { h: '🏆 How to Win', p: '🔪 Mafia win when no good guys are left, or when Mafia are as many as the good guys. 🧑‍🌾 Good guys win when all the Mafia are dead.' },
+];
+const WHATS_NEW = [
+  { h: '📋 Copy link & code', p: 'In the lobby, tap Copy link to copy the game link, or Copy code to copy just the room code. Send them separately or together.' },
+  { h: '📜 Night narrator', p: 'About 5 seconds into each night, the narrator shares a rules tip or a whisper about a random living player. The whispers are pure flavor and mean nothing, so do not read into them!' },
+  { h: '🔪 Mafia Chat', p: 'At night, living Mafia (and the Shapeshifter) get a private chat to plan together and pick a victim. Nobody else can see it.' },
+  { h: '👻 Ghost Chat', p: 'Once you are out of the game, you join the Ghost Chat with the other eliminated players. Their roles are shown, and living players cannot see any of it.' },
+  { h: '✓ Vote labels', p: 'During the day vote, every player shows ✓ Voted or … Waiting. Nobody can see who anyone voted for. Use it to nudge slow voters!' },
+  { h: '🎨 New look', p: 'A fresh charcoal and bronze design. Once the game starts, your own role colours the interface: green for Civilian, yellow for special roles, red for Mafia, crimson for Shapeshifter, cyan for Doctor and slate for Detective. Only you see your colour.' },
+  { h: '🛡️ Guard', p: 'Each night, protect one person from the Mafia. You cannot protect yourself, but you can protect the same person two nights in a row.' },
+  { h: '👵 Granny', p: 'If the Mafia attacks Granny, the Mafia dies instead! Granny is a trap, so the Mafia should NOT pick her.' },
+  { h: '⚖️ Judge', p: 'Once per game: if exactly two players tie for the most votes, the Judge can call a retrial, a second vote between just those two. If the Judge says no, nobody dies that day.' },
+  { h: '🏛️ Mayor', p: 'Your vote counts as TWO votes. If you vote for Bob, Bob gets 2 votes from you alone. Your identity stays secret. Voting Skip still counts as 1.' },
+  { h: '✊ Rebel', p: 'Once per game: if you are voted out, you can refuse to die. You survive, but you lose your vote the next day.' },
+  { h: '🔮 Oracle', p: 'Once per game, at night: pick two players and learn if they are on the SAME team or DIFFERENT teams. You never learn exact roles. You can pick "Not tonight" to save your power.' },
+  { h: '👤 Shapeshifter', p: 'A secret Mafia. Once per game: if you are voted out, swap names with another Mafia who dies in your place. You survive! Needs 7+ players.' },
+  { h: '⚙️ Turn roles on or off', p: 'The host can switch the optional roles on or off in the lobby before the game starts.' },
+];
+const CREDITS_FOOTER = `<footer class="game-credits"><div>An original game by K486924</div><small>© 2026 K486924 · All rights reserved</small></footer>`;
+function showCredits() {
+  app.innerHTML = `
+    <h1>🕵️ MAFIA</h1>
+    <p class="sub">Credits</p>
+    <div class="card">
+      <div class="credit-row"><span>Created by</span><span>K486924</span></div>
+      <div class="credit-row"><span>Design &amp; code</span><span>K486924</span></div>
+      <div class="credit-row"><span>Multiplayer</span><span>PeerJS (peer-to-peer)</span></div>
+      <div class="credit-row"><span>Sound</span><span>Web Audio API</span></div>
+    </div>
+    <div class="card"><h3>Thanks for playing</h3><p class="muted">Gather your friends, trust no one, and may the best side win.</p></div>
+    <button class="gray" onclick="home()">← Back to Menu</button>
+    ${CREDITS_FOOTER}`;
+  window.scrollTo({ top: 0 });
+}
+function showHelp(kind) {
+  const how = kind === 'howto', data = how ? HOW_TO_PLAY : WHATS_NEW;
+  app.innerHTML = `
+    <h1>🕵️ MAFIA</h1>
+    <p class="sub">${how ? 'Learn the rules' : 'New roles we added'}</p>
+    ${data.map(x => `<div class="card"><h3>${esc(x.h)}</h3><p>${esc(x.p)}</p></div>`).join('')}
+    <button class="gray" onclick="home()">← Back to Menu</button>
+    ${CREDITS_FOOTER}`;
+  window.scrollTo({ top: 0 });
+}
+const TIMES = [45, 60, 90, 120, 180]; // day voting time options (seconds)
+const WORD_MS = 140; // typing speed: lower = faster
+
+/* --- RECONNECT SUPPORT --- */
+const JUDGE_MS = 30000, REBEL_MS = 15000;
+const NIGHT_MS = 75000;                  // night auto-skips idle players after this
+const GRACE_MS = 120000;                 // 2-minute reconnect grace
+const TOKEN_KEY = 'mafia-token';
+const SESSION_KEY = 'mafia-session';
+let memToken = null;
+function getToken() {
+  try {
+    let t = localStorage.getItem(TOKEN_KEY);
+    if (!t) { t = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(TOKEN_KEY, t); }
+    return t;
+  } catch (e) {
+    if (!memToken) memToken = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    return memToken;
+  }
+}
+function saveSession(code, name) { try { localStorage.setItem(SESSION_KEY, JSON.stringify({code, name})); } catch(e) {} }
+function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch(e) {} }
+function loadSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch(e) { return null; } }
+
+let endAt = 0, lpT = null;
+const CHAT_STICK_BOTTOM = false;   // false: never auto-scroll, show a ↓ button. true: follow new messages when already at the bottom
+let chatExpanded = true, chatUnread = 0, chatSeenSig = '', chatSeenN = 0, chatSeenInit = false, chatDomSig = '', lastBotHtml = '', lastTopHtml = '', chatRestore = null, ghostExpanded = true, ghostUnread = 0, ghostSeenN = 0, ghostSeenInit = false, ghostDomSig = '', ghostRestore = null, mafExpanded = true, mafUnread = 0, mafSeenN = 0, mafSeenInit = false, mafDomSig = '', mafRestore = null;
+let soundPhase = '', soundLog = 0, soundChatN = 0, soundGhostN = 0, soundMafN = 0, soundPromptKey = '', soundInit = false;
+let peer, isHost = false, myId, myName, hostConn, G = null, V = null, code = '', sess = 0, busy = false;
+
+const isM = r => r === 'mafia' || r === 'shapeshifter';
+const publicName = p => p.displayName || p.name;
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function cleanup() {
+  sess++; busy = false;
+  try { if (peer) peer.destroy(); } catch(e) {}
+  peer = null; hostConn = null; G = null; isHost = false;
+}
+
+/* --- WORD-BY-WORD FADE TEXT --- */
+let Q = [], qBusy = false, qGen = 0, seenLog = -1, lastKey = '', roleShown = false, infoRound = 0, overShown = false;
+
+/* ROLE THEME: local only, derived from this player's own v.you.role; never sent over the network */
+const ROLE_THEME = { civilian:'civilian', judge:'special', mayor:'special', guard:'special', rebel:'special', oracle:'special', granny:'special', jester:'special', doctor:'doctor', detective:'detective', mafia:'mafia', shapeshifter:'shapeshifter' };
+const roleTheme = r => ROLE_THEME[r] || 'default';
+function activateRoleTheme(role) { document.body.dataset.role = roleTheme(role); }
+function resetRoleTheme() { document.body.dataset.role = 'default'; }
+function resetStory() { chatUnread = 0; chatSeenSig = ''; chatSeenN = 0; chatSeenInit = false; chatDomSig = ''; lastBotHtml = ''; lastTopHtml = ''; chatRestore = null; ghostUnread = 0; ghostSeenN = 0; ghostSeenInit = false; ghostDomSig = ''; ghostRestore = null; mafUnread = 0; mafSeenN = 0; mafSeenInit = false; mafDomSig = ''; mafRestore = null; soundMafN = 0; mafExpanded = true; soundPhase = ''; soundLog = 0; soundChatN = 0; soundGhostN = 0; chatExpanded = true; ghostExpanded = true; soundPromptKey = ''; soundInit = false; qGen++; Q = []; qBusy = false; seenLog = -1; lastKey = ''; roleShown = false; infoRound = 0; overShown = false; }
+
+function say(text, cls) { Q.push({ text, cls }); if (!qBusy) pump(qGen); }
+
+function pump(g) {
+  if (g !== qGen) return;
+  const it = Q.shift();
+  if (!it) { qBusy = false; return; }
+  const st = $('story');
+  if (!st) { Q = []; qBusy = false; return; }
+  qBusy = true;
+  const d = document.createElement('p');
+  d.className = 'line ' + (it.cls || '');
+  const ws = it.text.split(' ');
+  d.innerHTML = ws.map((w, i) => `<span class="w" style="animation-delay:${i * WORD_MS}ms">${esc(w)}</span>`).join(' ');
+  st.appendChild(d);
+  while (st.children.length > 7) st.removeChild(st.firstChild);
+  const nearBottom = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 200;
+  if (nearBottom && !/^(INPUT|TEXTAREA)$/.test((document.activeElement || {}).tagName)) d.scrollIntoView({ behavior: REDUCED_MOTION.matches ? 'auto' : 'smooth', block: 'nearest' });
+  setTimeout(() => pump(g), ws.length * WORD_MS + 500);
+}
+
+function home(msg) {
+  const keepNm = $('nm') ? $('nm').value : '', keepCd = $('cd') ? $('cd').value : '';   // keep what the player typed across error re-renders
+  cleanup(); V = null; resetStory(); closeOv(); document.body.className = ''; resetRoleTheme();
+  clearTimeout(rcTimer);
+  const se = loadSession();
+  let displaced = false; try { displaced = !!se && sessionStorage.getItem('mafia-displaced') === se.code; } catch(e) {}
+  app.innerHTML = `
+    <header class="hero">
+      <div class="hero-ico" aria-hidden="true">🕵️</div>
+      <h1>MAFIA</h1>
+      <p class="sub">Trust no one.</p>
+    </header>
+    ${msg ? `<div class="alert" role="alert">${esc(msg)}</div>` : ''}
+    <div class="card door">
+      <label class="fl" for="nm">Your name</label>
+      <input id="nm" placeholder="e.g. Vito" maxlength="12" autocomplete="off">
+      <button class="btn-main" onclick="create()">Create Room</button>
+      <div class="or">or join a friend</div>
+      <label class="fl" for="cd">Room code</label>
+      <input id="cd" class="code-input" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" style="text-transform:uppercase">
+      <button class="gray" onclick="join()">Join Room</button>
+    </div>
+    ${se && !msg && !noResume && !displaced ? `<div class="card">
+       <p class="muted">Last room: <b>${esc(se.code)}</b> (${esc(se.name)})</p>
+       <button class="gray" onclick="reconnect()">Reconnect</button></div>` : ''}
+    <div class="menu-links">
+      <button class="gray" onclick="showHelp('howto')">📖 How to Play</button>
+      <button class="gray" onclick="showHelp('whatsnew')">🆕 What's New</button>
+      <button class="gray" onclick="showCredits()">🎖️ Credits</button>
+    </div>
+    ${CREDITS_FOOTER}
+  `;
+  if (keepNm && $('nm')) $('nm').value = keepNm;
+  if (keepCd && $('cd')) $('cd').value = keepCd;
+}
+
+function nm() { const n = $('nm').value.trim(); if(!n) { home('Enter a name first'); return null; } return n; }
+
+/* --- HOST LOGIC --- */
+const PEER_OPTS = { debug: 1, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
+
+function create(retryName) {
+  if (busy && !retryName) return;
+  const n = retryName || nm(); if (!n) return;
+  home('Connecting to server... Please wait (up to 20s).');
+  isHost = true; myName = n; busy = true; // must come AFTER home(), which resets them
+
+  code = Math.random().toString(36).slice(2, 7).toUpperCase();
+  const s = sess;
+  try { peer = new Peer('mafia-mca-' + code, PEER_OPTS); }
+  catch (e) { return home('PeerJS library not loaded. Check internet / INTERNET permission.'); }
+
+  let timeout = setTimeout(() => {
+    if (s === sess && !G) { home('Could not reach the PeerJS server. Check internet (or try again in a minute, the free server is sometimes busy).'); cleanup(); }
+  }, 20000);
+
+  peer.on('open', id => {
+    if (s !== sess) return;
+    clearTimeout(timeout);
+    myId = id;
+    G = { phase:'lobby', round:0, opts:{...DEFAULT_OPTS}, players:[{id, name:myName, alive:true, conn:null}], acts:{}, votes:{}, log:[], info:{}, chat:[], chatN:0, ghost:[], ghostN:0, maf:[], mafN:0 };
+    push();
+  });
+
+  peer.on('connection', c => {
+    c.on('data', d => { if (s === sess && G) hostMsg(c, d); });
+    c.on('close', () => { if (s === sess && G) { const p = G.players.find(x => x.conn === c); if (p) onDisconnect(p); } });
+  });
+
+  peer.on('disconnected', () => { if (s === sess && peer && !peer.destroyed) { try { peer.reconnect(); } catch(e) {} } });
+
+  peer.on('error', e => {
+    clearTimeout(timeout);
+    if (s !== sess) return;
+    if (e.type === 'unavailable-id') { const nn = myName; try { peer.destroy(); } catch(x) {} create(nn); }
+    else if (!G) home('Server error: ' + e.type + '. Check internet and try again.');
+  });
+}
+
+function hostMsg(c, d) {
+  if (d.t === 'join') {
+    const token = String(d.token || '').slice(0, 64);
+    const ex = token && G.players.find(p => p.token === token && !p.gone);
+    if (ex) {   // reconnect: keep the ORIGINAL id/slot (ex.id stays the old peer id on purpose; votes, acts and the view all key off it)
+      const old = ex.conn;
+      ex.conn = c; ex.dcAt = null;
+      if (G.auto && G.auto[ex.id]) {   // let them still act this round
+        if (G.phase === 'night' && G.acts[ex.id] === null) delete G.acts[ex.id];
+        if ((G.phase === 'day' || G.phase === 'retrial') && G.votes[ex.id] === 'skip') delete G.votes[ex.id];
+        delete G.auto[ex.id];
+      }
+      if (old && old !== c) {
+        try { old.send({t:'replaced'}); } catch(e) {}
+        setTimeout(() => { try { old.close(); } catch(e) {} }, 200);
+      }
+      if (G.phase === 'night' || G.phase === 'day' || G.phase === 'shapeshift') G.log.push('✅ ' + publicName(ex) + ' reconnected.');
+      push(); return;
+    }
+    const removed = token && G.players.find(p => p.token === token && p.gone);
+    if (removed && G.phase !== 'lobby') return c.send({t:'err', m: removed.kicked ? 'You were kicked by the host.' : 'You were removed from this game (disconnected too long).'});
+    if (G.phase !== 'lobby') return c.send({t:'err', m:'Game already started'});
+    if (G.players.length >= 15) return c.send({t:'err', m:'Room is full'});
+    const base = String(d.name || '').trim().slice(0, 12) || 'Player';
+    let n = base, i = 1;
+    while (G.players.some(p => p.name === n)) { const suf = String(i++); n = base.slice(0, Math.max(1, 12 - suf.length)) + suf; if (i > 200) return c.send({t:'err', m:'Room is full'}); }
+    G.players.push({ id: c.peer, name: n, alive: true, conn: c, token: token || null });
+    push(); return;
+  }
+  const p = G.players.find(p => p.conn === c);
+  if (!p) return;
+  if (d.t === 'leave') return leave(p);
+  act(p, d);
+}
+
+function onDisconnect(p) {
+  if (p.gone || !G.players.includes(p) || !p.conn) return;
+  p.conn = null;
+  p.dcAt = Date.now();
+  if (p.alive && !p.kicked) G.log.push('⏳ ' + publicName(p) + ' disconnected, waiting up to 2 min for reconnect...');
+  autoResolve(p);
+  if (G.phase === 'night' && nightDone()) return resolveNight();
+  if (G.phase === 'day' && !waitingVoters().length) return resolveVote();
+  if (G.phase === 'retrial' && !waitingVoters().length) return resolveRetrial();
+  push();
+}
+function isSilenced(id) { return !!(G.silenced && G.silenced[id] === G.round); }
+function waitingVoters() { return G.players.filter(x => x.alive && !(x.id in G.votes) && !isSilenced(x.id)); }
+function autoResolve(p) {   // a disconnect must not stall night/vote
+  G.auto = G.auto || {};
+  if (G.phase === 'night' && needsAct(p) && !(p.id in G.acts)) { G.acts[p.id] = null; G.auto[p.id] = 1; }
+  if ((G.phase === 'day' || G.phase === 'retrial') && p.alive && !(p.id in G.votes) && !isSilenced(p.id)) { G.votes[p.id] = 'skip'; G.auto[p.id] = 1; }
+}
+
+function leave(p, reason) {
+  if (p.gone || !G.players.includes(p)) return; p.gone = true; // avoid double-handling (leave msg + conn close)
+  if (G.phase === 'lobby' || G.phase === 'over') {
+    G.players = G.players.filter(x => x !== p);
+    if (p.conn) try { p.conn.close(); } catch(e) {}
+    return push();
+  }
+  if (G.phase === 'shapeshift' && p.id === G.ssId) return shiftTimeout();
+  const wasAlive = p.alive;
+  p.alive = false;
+  if (wasAlive) G.log.push(p.kicked ? '👢 ' + publicName(p) + ' was kicked by the host.'
+    : reason === 'timeout' ? '🚪 ' + publicName(p) + ' did not reconnect in time.'
+    : '🚪 ' + publicName(p) + ' left the game.');
+  if (win()) return;
+  if (G.phase === 'judge' && p.id === G.judgeId) return judgeResponse(false);
+  if (G.phase === 'rebel' && p.id === G.rebelId) { G.rebelId = null; G.deadline = null; return startNight(); }
+  if (G.phase === 'night' && nightDone()) resolveNight();
+  else if (G.phase === 'day' && !waitingVoters().length) resolveVote();
+  else if (G.phase === 'retrial' && !waitingVoters().length) resolveRetrial();
+  else push();
+}
+
+function leaveRoom() {
+  if (!confirm('Leave the room?')) return;
+  clearSession();
+  sess++;   // blocks stale close/data handlers
+  if (isHost) { G.players.forEach(p => { if(p.conn) try{p.conn.send({t:'end'})}catch(e){} }); isHost = false; setTimeout(()=>home('You ended the room.'), 200); }
+  else { try{hostConn.send({t:'leave'})}catch(e){}; setTimeout(()=>home('You left.'), 200); }
+}
+
+function kick(id) {
+  if (!isHost || !G) return;
+  const p = G.players.find(x => x.id === id && x !== G.players[0]);
+  if (!p) return;
+  p.kicked = true; // flag first, so the log line says kicked
+  const c = p.conn;
+  if (c) try { c.send({t:'kicked'}); } catch(e) {}
+  p.conn = null;   // detach so leave() doesn't close the socket before 'kicked' is delivered, and the later close event is a no-op
+  leave(p);        // synchronous removal: no window where Start could give them a role
+  if (c) setTimeout(() => { try { c.close(); } catch(e) {} }, 250);
+}
+
+function send(d) {
+  if (d.t === 'vote' || d.t === 'judge' || d.t === 'rebel') SFX.click();
+  else if (d.t === 'act' || d.t === 'oracle' || d.t === 'shapeshift' || d.t === 'oraclePass') SFX.yourTurn();
+  if (isHost) act(G.players[0], d); else if (hostConn) { try { hostConn.send(d); } catch(e) {} } }
+
+/* --- GAME ACTIONS --- */
+function act(p, d) {
+  if (d.t === 'opt' && G.phase === 'lobby' && p === G.players[0]) {
+    if (d.k === 'time') { if (TIMES.includes(+d.val)) { G.opts.time = +d.val; push(); } return; }
+    if (OPTIONAL_ROLES.includes(d.k)) { G.opts[d.k] = !!d.val; push(); }
+    return;
+  }
+  if (d.t === 'ghost' && G.phase !== 'lobby' && !p.alive && p.role) {   // eliminated by game logic (killed / voted out); a disconnect never sets alive=false
+    const text = String(d.text || '').trim().slice(0, 120); if (!text) return;
+    G.ghost = G.ghost || []; G.ghost.push(`${ROLES[p.role][2]} ${publicName(p)} (${ROLES[p.role][0]}): ${text}`);
+    G.ghostN = (G.ghostN || 0) + 1;
+    if (G.ghost.length > 50) G.ghost.shift();
+    return push();
+  }
+  if (d.t === 'maf' && G.phase === 'night' && p.alive && isM(p.role)) {   // Mafia-team private chat, night only
+    const text = String(d.text || '').trim().slice(0, 120); if (!text) return;
+    G.maf = G.maf || []; G.maf.push(publicName(p) + ': ' + text);
+    G.mafN = (G.mafN || 0) + 1;
+    if (G.maf.length > 50) G.maf.shift();
+    return push();
+  }
+  if (d.t === 'chat' && (G.phase === 'lobby' || G.phase === 'day' || G.phase === 'retrial' || (['shapeshift', 'judge', 'rebel'].includes(G.phase) && !prompted(p))) && p.alive) {
+    G.chat.push(publicName(p) + ': ' + String(d.text).slice(0, 120));
+    G.chatN = (G.chatN || 0) + 1;   // monotonic: never reset, so clients can count arrivals exactly even at the 30-cap
+    if (G.chat.length > 30) G.chat.shift();
+    return push();
+  }
+  if (d.t === 'oracle' && G.phase === 'night' && needsAct(p) && p.role === 'oracle' && !(p.id in G.acts)) {
+    const a = G.players.find(x => x.id === d.a && x.alive), b = G.players.find(x => x.id === d.b && x.alive);
+    if (!a || !b || a === b) return;
+    p.oracleUsed = true; G.acts[p.id] = a.id;
+    G.info[p.id] = '🔮 ' + publicName(a) + ' & ' + publicName(b) + ': ' + (isM(a.role) === isM(b.role) ? 'SAME FACTION' : 'DIFFERENT FACTIONS');
+    if (nightDone()) resolveNight(); else push();
+    return;
+  }
+  if (d.t === 'oraclePass' && G.phase === 'night' && needsAct(p) && p.role === 'oracle' && !(p.id in G.acts)) {
+    G.acts[p.id] = null;
+    if (nightDone()) resolveNight(); else push();
+    return;
+  }
+  if (d.t === 'judge' && G.phase === 'judge' && p.id === G.judgeId) return judgeResponse(!!d.call);
+  if (d.t === 'rebel' && G.phase === 'rebel' && p.id === G.rebelId) return rebelResponse(!!d.refuse);
+  if (d.t === 'act' && G.phase === 'night' && needsAct(p) && p.role !== 'oracle' && !(p.id in G.acts)) {
+    const t = G.players.find(x => x.id === d.target && x.alive);
+    if (!t) return;
+    if (p.role === 'guard' && t === p) return;
+    if (isM(p.role) && isM(t.role)) return;
+    if (p.role === 'detective' && t === p) return;
+    G.acts[p.id] = t.id;
+    if (p.role === 'detective') G.info[p.id] = publicName(t) + ' is ' + (isM(t.role) ? 'MAFIA 🔪' : 'NOT Mafia ✅');
+    if (nightDone()) resolveNight(); else push();
+    return;
+  }
+  if (d.t === 'shapeshift' && G.phase === 'shapeshift' && p.id === G.ssId) {
+    const t = G.players.find(x => x.id === d.target && x.alive && isM(x.role) && x.id !== p.id);
+    if (!t) return;
+    const tmp = p.displayName; p.displayName = t.displayName; t.displayName = tmp;   // swap names
+    t.alive = false; p.canShift = false;                                            // once per game
+    G.ssId = null; G.deadline = null;
+    G.log.push('🗳️ The town has spoken. ' + publicName(t) + ' was voted out. They were ' + ROLES[t.role][0] + '.');
+    if (!win()) startNight();
+    return;
+  }
+  if (d.t === 'vote' && (G.phase === 'day' || G.phase === 'retrial') && p.alive && !isSilenced(p.id) && !(p.id in G.votes)) {
+    let v = d.target;
+    if (G.phase === 'retrial' && !(G.tieIds || []).includes(v)) return;   // retrial: only the two candidates, no skip
+    if (v !== 'skip') { const t = G.players.find(x => x.id === d.target && x.alive && x !== p); if (!t) return; }
+    G.votes[p.id] = v;
+    if (!waitingVoters().length) { if (G.phase === 'retrial') resolveRetrial(); else resolveVote(); } else push();
+  }
+}
+
+function start() {
+  if (G.phase !== 'lobby') return;
+  const ghosts = G.players.filter(p => p !== G.players[0] && !p.conn).length;
+  if (ghosts) return alert(ghosts + ' player(s) are disconnected or reconnecting. Wait for them or kick them first.');
+  const n = G.players.length;
+  if (n < 5) return alert('Need at least 5 players!');
+  const mc = Math.max(1, Math.floor((n - 1) / 3));
+  const roles = Array(mc).fill('mafia');
+  if (G.opts.shapeshifter && mc >= 2) roles[mc - 1] = 'shapeshifter';   // needs another Mafia to swap with
+  OPTIONAL_ROLES.forEach(r => { if (r !== 'shapeshifter' && G.opts[r] && roles.length < n) roles.push(r); });
+  while (roles.length < n) roles.push('civilian');
+  for (let i = roles.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [roles[i], roles[j]] = [roles[j], roles[i]]; }
+  G.players.forEach((p, i) => { p.role = roles[i]; p.alive = true; p.displayName = p.name; p.canShift = p.role === 'shapeshifter'; p.judgeUsed = p.rebelUsed = p.oracleUsed = false; });
+  G.ssId = G.judgeId = G.rebelId = G.tieIds = null; G.silenced = {};
+  G.round = 0; G.winner = null; G.log = ['The game begins.']; G.chat = []; G.ghost = []; G.maf = []; G.factHist = []; G.factAt = null;
+  startNight();
+}
+
+const FACT_DELAY = 5000;   // narrator line appears 5s into the night
+const FACT_GAP = 3;        // an item repeats only after 3 others have shown
+const NIGHT_FACTS = [
+  '💡 Mafia was invented in 1986 at Moscow State University — a psychology student wanted to study how people lie.',
+  '💉 The Doctor\'s save only works if it lands on the exact player the Mafia targeted that night.',
+  '💉 A Doctor may save themselves. Nothing in the rules stops them.',
+  '🛡️ The Guard may protect the same player on consecutive nights — but never themselves.',
+  '🛡️ If the Doctor and the Guard protect the same target, either one alone stops the kill.',
+  '👵 Granny is a trap: every Mafia who picks her dies instead. A Doctor\'s save cannot undo that.',
+  '🕵️ The Detective learns "Mafia" or "not Mafia" — never the exact role.',
+  '🕵️ The Detective cannot investigate themselves.',
+  '🧑‍🌾 Civilians have no night action at all. Their only weapon is the daytime vote.',
+  '🔪 The Mafia may not target one of their own — the Shapeshifter counts as Mafia.',
+  '🔪 If the Mafia split their votes, the target with the most Mafia votes dies. A tie is broken at random.',
+  '🔪 The Mafia win the moment they equal or outnumber the good guys. Every kill counts.',
+  '🌙 All night actions resolve at once. Nobody sees who acted on whom.',
+  '🤡 The Jester wins alone by being voted out. Suspicious, but not too suspicious.',
+  '⚖️ The Judge is only called when exactly two players tie for the most votes.',
+  '⚖️ A retrial can tie too — in which case nobody is voted out after all.',
+  '🏛️ The Mayor\'s vote counts as two — but a vote to Skip still counts as one.',
+  '✊ A Rebel who refuses execution survives, but loses their vote the next day.',
+  '🔮 The Oracle never learns roles, only whether two players share a faction.',
+  '🔮 The Oracle\'s power is once per game. Passing on it keeps it for a later night.',
+  '👤 The Shapeshifter needs another living Mafia to swap with. Once spent, the power is gone.',
+  '👤 The Shapeshifter needs 7+ players — otherwise it is quietly left out.',
+  '🗳️ Skipping is a real vote. If Skip wins, nobody is voted out that day.',
+  '🗳️ A day that ends in a tie — with no Judge — kills nobody.',
+  '🌅 Killed players\' roles are revealed the next morning. Voted-out players\' roles are revealed at once.',
+  '👻 Dead players can still watch, and can whisper to each other in the Ghost Chat.',
+  '📵 A disconnected player may rejoin within 2 minutes before they are removed.',
+  '💬 The Mafia share a private chat at night — it vanishes when morning comes.',
+  '❓ No role is ever confirmed until a player dies. Trust is always a gamble.',
+  '🔪 If the Mafia attack Granny, every Mafia who picked her dies — not just one.',
+  '🏁 The game ends the instant one side wins. No tiebreakers, no second chances.',
+  '🌙 The town\'s vote is the only weapon that never runs out of uses.',
+];
+const SUSPICION = [
+  n => `🔍 Is ${n} the Mafia? The town is watching them closely.`,
+  n => `🔍 ${n} has been quiet tonight. Suspicious? Maybe. Mafia? Who knows.`,
+  n => `🔍 A whisper in the square: "${n} cannot be trusted..."`,
+  n => `🔍 The town wonders aloud — could ${n} be the Mafia?`,
+  n => `🔍 ${n} was seen near the scene. Coincidence, or guilt?`,
+  n => `🔍 Eyes turn to ${n}. Are they hiding something tonight?`,
+  n => `🔍 Someone asks: is it ${n}? The Mafia could be anyone.`,
+  n => `🔍 A rumor spreads: ${n} has been acting strange lately.`,
+  n => `🔍 ${n} says nothing. That silence could be innocence — or Mafia.`,
+  n => `🔍 What if ${n} is the Mafia? The town should keep an eye on them.`,
+];
+function nextNightLine() {
+  G.factHist = G.factHist || [];
+  const hist = new Set(G.factHist);
+  const pool = [];
+  NIGHT_FACTS.forEach((text, i) => { if (!hist.has('f' + i)) pool.push({ key: 'f' + i, text }); });
+  G.players.filter(p => p.alive).forEach(p => {
+    if (!hist.has('q' + p.id)) {
+      const tpl = SUSPICION[Math.floor(Math.random() * SUSPICION.length)];
+      pool.push({ key: 'q' + p.id, text: tpl(publicName(p)) });
+    }
+  });
+  if (!pool.length) { G.factHist = []; return nextNightLine(); }
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  G.factHist.push(pick.key);
+  while (G.factHist.length > FACT_GAP) G.factHist.shift();
+  return pick.text;
+}
+
+function startNight() {
+  G.phase = 'night'; G.round++; G.acts = {}; G.votes = {}; G.info = {}; G.chat = []; G.auto = {}; G.deadline = Date.now() + NIGHT_MS; G.factAt = Date.now() + FACT_DELAY;
+  const dcs = G.players.filter(p => p.dcAt);
+  if (dcs.length) { dcs.forEach(autoResolve); if (nightDone()) return resolveNight(); }
+  push();
+}
+
+const nightDone = () => G.players.filter(needsAct).every(p => p.id in G.acts);
+
+function resolveNight() {
+  const maf = G.players.filter(p => p.alive && isM(p.role)), cnt = {};
+  maf.forEach(m => { const t = G.acts[m.id]; if (t) cnt[t] = (cnt[t] || 0) + 1; });
+  const vals = Object.values(cnt);
+  const top = vals.length ? Math.max(...vals) : 0;
+  const tops = vals.length ? Object.keys(cnt).filter(k => cnt[k] === top) : [];
+  const tid = tops.length ? tops[Math.floor(Math.random() * tops.length)] : null;
+  const tg = G.players.find(p => p.id === tid);
+  const doc = G.players.find(p => p.alive && p.role === 'doctor');
+  const gd = G.players.find(p => p.alive && p.role === 'guard');
+  const saved = (doc && tid && G.acts[doc.id] === tid) || (gd && tid && G.acts[gd.id] === tid);
+
+  let msg = '';
+  if (tg && tg.role === 'granny') {
+    const ks = maf.filter(m => G.acts[m.id] === tid); ks.forEach(k => k.alive = false);
+    msg = '🌅 The sun rises. The mafia attacked Granny... and ' + ks.map(publicName).join(', ') + (ks.length > 1 ? ' (all Mafia) were' : ' (Mafia) was') + ' killed instead!';
+  } else if (saved) {
+    msg = '🌅 The sun rises. The mafia struck, but the victim was protected. Nobody died.';
+  } else if (tg) {
+    tg.alive = false; msg = '🌅 The sun rises. ' + publicName(tg) + ' was found dead. They were ' + ROLES[tg.role][0] + '.';
+  } else { msg = '🌅 The sun rises on a quiet night.'; }
+
+  G.log.push(msg); G.acts = {}; G.votes = {}; G.auto = {}; G.phase = 'day'; G.deadline = Date.now() + G.opts.time * 1000;
+  if (!win()) push();
+}
+
+function tally(only) {   // weighted: Mayor's vote for a player counts 2; silenced/dead voters count 0
+  const cnt = {};
+  Object.entries(G.votes).forEach(([voter, target]) => {
+    const vp = G.players.find(p => p.id === voter);
+    if (!vp || !vp.alive || isSilenced(voter)) return;
+    if (target !== 'skip' && !G.players.some(p => p.id === target && p.alive)) return;
+    if (only && !only.includes(target)) return;
+    cnt[target] = (cnt[target] || 0) + (vp.role === 'mayor' && target !== 'skip' ? 2 : 1);
+  });
+  return Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+}
+
+function resolveVote() {
+  G.deadline = null;
+  const s = tally();
+  if (!s.length || s[0][0] === 'skip') { G.log.push('🗳️ No majority. Nobody was voted out.'); return win() ? 0 : startNight(); }
+  if (s[1] && s[1][1] === s[0][1]) {
+    const exactTwo = s[1][0] !== 'skip' && (!s[2] || s[2][1] < s[0][1]);
+    const judge = G.players.find(p => p.alive && p.role === 'judge' && !p.judgeUsed);
+    if (exactTwo && judge) { G.phase = 'judge'; G.judgeId = judge.id; G.tieIds = [s[0][0], s[1][0]]; G.deadline = Date.now() + JUDGE_MS; return push(); }
+    G.log.push('🗳️ No majority. Nobody was voted out.'); return win() ? 0 : startNight();
+  }
+  execute(G.players.find(p => p.id === s[0][0]));
+}
+
+function execute(t) {   // the town has chosen t
+  if (!t) { G.log.push('🗳️ Nobody was voted out.'); return win() ? 0 : startNight(); }
+  if (t.role === 'rebel' && !t.rebelUsed) { G.phase = 'rebel'; G.rebelId = t.id; G.deadline = Date.now() + REBEL_MS; return push(); }
+  if (t.role === 'shapeshifter' && t.canShift && G.players.some(x => x.alive && x.id !== t.id && isM(x.role))) {
+    G.phase = 'shapeshift'; G.ssId = t.id; G.deadline = Date.now() + 20000;   // town just sees 'counting votes'
+    return push();
+  }
+  finishExecute(t);
+}
+function finishExecute(t) {
+  t.alive = false;
+  G.log.push('🗳️ The town has spoken. ' + publicName(t) + ' was voted out. They were ' + ROLES[t.role][0] + '.');
+  if (t.role === 'jester') { G.phase = 'over'; G.winner = 'Jester'; G.deadline = null; return push(); }
+  if (!win()) startNight();
+}
+function judgeResponse(call) {
+  const j = G.players.find(p => p.id === G.judgeId), tie = G.tieIds;
+  G.judgeId = null; G.deadline = null;
+  // declined/timed out: judgeUsed stays false on purpose (use it only if you activate it), so a later tie can prompt again
+  if (!call || !j) { G.tieIds = null; G.log.push('🗳️ No majority. Nobody was voted out.'); return win() ? 0 : startNight(); }
+  j.judgeUsed = true;
+  G.phase = 'retrial'; G.votes = {}; G.auto = {}; G.deadline = Date.now() + G.opts.time * 1000;
+  G.log.push('⚖️ A retrial has been called between ' + tie.map(id => publicName(G.players.find(p => p.id === id))).join(' and ') + '.');
+  if (!waitingVoters().length) return resolveRetrial();
+  push();
+}
+function resolveRetrial() {
+  G.deadline = null;
+  const s = tally(G.tieIds);
+  G.tieIds = null;
+  if (!s.length) { G.log.push('⚖️ The retrial ended with no votes. Nobody was voted out.'); return win() ? 0 : startNight(); }
+  if (s[1] && s[1][1] === s[0][1]) { G.log.push('⚖️ The retrial is tied. Nobody was voted out.'); return win() ? 0 : startNight(); }
+  execute(G.players.find(p => p.id === s[0][0]));
+}
+function rebelResponse(refuse) {
+  const t = G.players.find(p => p.id === G.rebelId);
+  G.rebelId = null; G.deadline = null;
+  if (!t) return win() ? 0 : startNight();
+  t.rebelUsed = true;   // the ability is spent either way
+  if (refuse) {
+    G.silenced = G.silenced || {}; G.silenced[t.id] = G.round + 1;   // loses the next day's vote
+    G.log.push('🗳️ The execution of ' + publicName(t) + ' was cancelled. Nobody was voted out.');
+    return startNight();
+  }
+  finishExecute(t);
+}
+
+function shiftTimeout() {   // shapeshifter didn't pick (or left): dies normally
+  const t = G.players.find(x => x.id === G.ssId);
+  G.ssId = null; G.deadline = null;
+  if (t) { t.alive = false; t.canShift = false; G.log.push('🗳️ The town has spoken. ' + publicName(t) + ' was voted out. They were ' + ROLES[t.role][0] + '.'); }
+  if (!win()) startNight();
+}
+
+function win() {
+  const a = G.players.filter(p => p.alive), m = a.filter(p => isM(p.role)).length;
+  const w = m === 0 ? 'Civilians' : (m >= a.length - m ? 'Mafia' : null);
+  if (w) { G.phase = 'over'; G.winner = w; G.deadline = null; push(); return true; }
+  return false;
+}
+
+function again() {
+  if (G.phase !== 'over') return;
+  G.players = G.players.filter(p => !p.gone);   // dead players stay connected; only drop those who left/were kicked
+  G.players.forEach(p => { p.role = null; p.displayName = null; p.canShift = p.judgeUsed = p.rebelUsed = p.oracleUsed = false; p.alive = true; });
+  G.ssId = G.judgeId = G.rebelId = G.tieIds = null; G.silenced = {}; G.auto = {};   // note: p.kicked is sticky, but kicked players are removed (p.gone) above
+  G.phase = 'lobby'; G.deadline = null; G.log = []; G.chat = []; G.ghost = []; G.maf = []; push();
+}
+
+/* --- VIEW & RENDER --- */
+const prompted = p => (G.phase === 'shapeshift' && p.id === G.ssId) || (G.phase === 'judge' && p.id === G.judgeId) || (G.phase === 'rebel' && p.id === G.rebelId);
+const hid = p => ['shapeshift', 'judge', 'rebel'].includes(G.phase) && !prompted(p);   // everyone else just sees 'counting votes'
+function view(p) {
+  return {
+    phase: hid(p) ? 'day' : G.phase, code, round: G.round, host: p.id === myId, opts: {...G.opts}, left: !G.deadline ? null : hid(p) ? 0 : Math.max(0, G.deadline - Date.now()), counting: hid(p), tie: G.phase === 'retrial' ? G.tieIds : G.phase === 'judge' && p.id === G.judgeId ? G.tieIds : null, silenced: isSilenced(p.id), players: G.players.map(x => ({ id: x.id, name: publicName(x), alive: x.alive, dc: !!x.dcAt, vt: ((G.phase === 'day' || G.phase === 'retrial') && x.alive && !isSilenced(x.id)) ? (x.id in G.votes) : null, role: (G.phase==='over'||!x.alive) ? x.role : (isM(p.role)&&isM(x.role)) ? 'mafia' : null })),
+    you: { id: p.id, role: p.role, alive: p.alive }, log: G.log.slice(-5), logBase: Math.max(0, G.log.length - 5), chat: G.chat, chatN: G.chatN || 0, maf: (G.phase === 'night' && p.alive && isM(p.role)) ? (G.maf || []) : [], mafN: (G.phase === 'night' && p.alive && isM(p.role)) ? (G.mafN || 0) : 0, ghost: p.alive ? [] : (G.ghost || []), ghostN: p.alive ? 0 : (G.ghostN || 0), info: G.info[p.id] || '', winner: G.winner,
+    need: (G.phase==='night'&&needsAct(p)&&!(p.id in G.acts))?'act':((G.phase==='day'||G.phase==='retrial')&&p.alive&&!isSilenced(p.id)&&!(p.id in G.votes))?'vote':null,
+    voted: (G.phase === 'day' || G.phase === 'retrial') && p.id in G.votes, waiting: (G.phase === 'day' || G.phase === 'retrial') ? waitingVoters().length : 0
+  };
+}
+
+function push() { G.players.forEach(p => { const v = view(p); if (p.conn) { try { p.conn.send({t:'v',v}); } catch(e) {} } else if (p === G.players[0]) { V = v; render(); } }); }
+
+/* --- CLIENT LOGIC --- */
+let rcTimer = null, rcTries = 0, rcStart = 0, noResume = false;
+const rcExpired = () => Date.now() - rcStart > GRACE_MS + 10000;
+function join(codeArg, nameArg, isReconnect) {
+  if (busy && !isReconnect) return;
+  let n, c;
+  if (isReconnect && codeArg && nameArg) { n = nameArg; c = codeArg; }
+  else {
+    n = nm(); if (!n) return;
+    c = $('cd').value.trim().toUpperCase(); if (!c) return home('Enter room code');
+  }
+  if (isReconnect) cleanup(); else home('Connecting to room ' + c + '...');
+  busy = true; code = c; myName = n;
+
+  const s = sess;
+  try { peer = new Peer(PEER_OPTS); }
+  catch (e) { return home('PeerJS library not loaded. Check internet / INTERNET permission.'); }
+
+  let timeout = setTimeout(() => {
+    if (s !== sess) return;
+    if (isReconnect) reconnectScreen('Could not reach host. Retrying…');
+    else { home('Connection timed out. Check the code and your internet.'); cleanup(); }
+  }, 20000);
+
+  peer.on('open', id => {
+    if (s !== sess) return; myId = id;
+    hostConn = peer.connect('mafia-mca-' + c, { reliable: true });
+    hostConn.on('open', () => {
+      hostConn.send({t:'join', name:n, token:getToken()});
+      saveSession(c, n);
+    });
+    hostConn.on('data', d => {
+      if (s !== sess) return;
+      if (d.t === 'v') { clearTimeout(timeout); try { sessionStorage.removeItem('mafia-displaced'); } catch(e) {} rcTries = 0; clearTimeout(rcTimer); V = d.v; render(); }
+      else if (d.t === 'err') { clearSession(); home(d.m); }
+      else if (d.t === 'end') { clearSession(); home('Host ended the game.'); }
+      else if (d.t === 'kicked') { clearSession(); home('You were kicked by the host.'); }
+      else if (d.t === 'replaced') { noResume = true; try { sessionStorage.setItem('mafia-displaced', c); } catch(e) {} home('You joined from another tab or device, so this one was disconnected.'); }
+    });
+    hostConn.on('close', () => { if (s === sess) reconnectScreen('Connection lost. Reconnecting…'); });
+  });
+
+  peer.on('disconnected', () => {
+    if (s === sess && peer && !peer.destroyed) { try { peer.reconnect(); } catch(e) {} }
+  });
+
+  peer.on('error', e => {
+    clearTimeout(timeout); if (s !== sess) return;
+    const m = e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : 'Network error: ' + e.type;
+    if (isReconnect) reconnectScreen(m); else { clearSession(); home(m); }
+  });
+}
+
+function reconnectScreen(msg) {
+  cleanup(); V = null; resetStory(); closeOv();
+  clearTimeout(rcTimer);
+  const se = loadSession();
+  if (!se) return home('Disconnected from room.');
+  if (rcTries > 0 && rcExpired()) { clearSession(); return home('Could not reconnect. Session ended.'); }
+  if (rcTries === 0) rcStart = Date.now();
+  rcTries++;
+  document.body.className = '';
+  app.innerHTML = `
+    <h1>🕵️ MAFIA</h1>
+    <p class="sub">${esc(msg || 'Reconnecting…')}</p>
+    <div class="card">
+      <p class="muted">Room <b>${esc(se.code)}</b> · attempt ${rcTries}</p>
+      <button onclick="reconnect()">Reconnect now</button>
+      <button class="gray" onclick="rcLeave()">Leave room</button>
+    </div>`;
+  if (!rcExpired()) rcTimer = setTimeout(rcRetry, 3000);
+}
+function rcRetry() {
+  clearTimeout(rcTimer);
+  const se = loadSession();
+  if (!se) return home('No room to reconnect to.');
+  if (rcExpired()) { clearSession(); return home('Could not reconnect. Session ended.'); }
+  join(se.code, se.name, true);
+}
+function rcLeave() { clearTimeout(rcTimer); clearSession(); home('You left the room.'); }
+function reconnect() { noResume = false; rcTries = 0; rcStart = Date.now(); rcRetry(); }
+
+/* --- RENDER UI --- */
+const winText = w => ({ Civilians:'The Civilians win!', Mafia:'The Mafia win!', Jester:'The Jester wins!' }[w] || (w + ' wins!'));
+const INVITE_URL = 'https://k486924.github.io/Mafia/';
+function copyText(btn, text) {
+  const say = ok => { const s = $('copyStatus'); if (s) s.textContent = ok ? 'Copied' : 'Copy failed'; };
+  const done = ok => {
+    say(ok);
+    if (!btn || !btn.isConnected) return;
+    if (btn.dataset.orig === undefined) btn.dataset.orig = btn.innerHTML;
+    btn.textContent = ok ? '✓ Copied' : 'Copy failed';
+    setTimeout(() => { if (btn.isConnected && btn.dataset.orig !== undefined) { btn.innerHTML = btn.dataset.orig; delete btn.dataset.orig; } }, 1500);
+  };
+  const fallback = () => {   // older browsers / WebViews without the async clipboard API
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy'); ta.remove(); done(ok);
+    } catch (e) { done(false); }
+  };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(() => done(true), fallback);
+  else fallback();
+}
+function copyLink(btn) { copyText(btn, INVITE_URL); }
+function copyCode(btn) { copyText(btn, V ? String(V.code) : ''); }
+function setOpt(k, val) { send({t:'opt', k, val}); }
+
+/* CHAT: stable inline card. Only the message list updates; the card is never rebuilt by a chat message. */
+const msgHTML = c => {   // "Name: text" -> name + text (display only; the stored message string is untouched)
+  const s = String(c), names = (V && V.players ? V.players.map(p => p.name) : []).filter(n => s.startsWith(n + ': ')).sort((a, b) => b.length - a.length);
+  const i = names.length ? names[0].length : s.indexOf(': ');   // prefer a real player name, so names containing ": " display correctly
+  return i > 0 && i <= 40 ? `<div class="msg"><span class="who">${esc(s.slice(0, i))}</span><span class="txt">${esc(s.slice(i + 2))}</span></div>` : `<div class="msg"><span class="txt">${esc(s)}</span></div>`;
+};
+function chatHTML(v) {
+  if (!['lobby', 'day', 'retrial'].includes(v.phase)) return '';
+  return `<div class="card chat-card">
+    <button id="chatToggle" class="chat-toggle" aria-expanded="true" aria-controls="chatBody" onclick="toggleChatBox()"><span class="chat-title">💬 Chat <span class="chat-kind">Everyone</span> <span id="chatBadge" class="chat-badge hidden"></span></span><span class="chev" aria-hidden="true">▼</span></button>
+    <div id="chatBody" class="chat-body">
+      <div class="chat-messages-wrap">
+        <div id="chatMessages" class="chat-messages" role="log" aria-label="Public chat messages" tabindex="0" onscroll="chatScrolled()"></div>
+        <button id="chatNewBtn" class="chat-new-btn hidden" onclick="jumpChatBottom()">↓ New messages</button>
+      </div>
+      ${v.you.alive ? `<div class="row"><input id="chatInput" aria-label="Chat message" placeholder="Say something..." maxlength="120" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')chatSend()"><button onclick="chatSend()">Send</button></div>` : ''}
+    </div></div>`;
+}
+/* GHOST CHAT: separate card for players eliminated by game logic. Living players never receive these messages (view() sends them an empty list). */
+function ghostHTML(v) {
+  if (v.you.alive || v.phase === 'lobby') return '';
+  return `<div class="card chat-card ghost-card">
+    <button id="ghostToggle" class="chat-toggle" aria-expanded="true" aria-controls="ghostBody" onclick="toggleGhostBox()"><span class="chat-title">👻 Ghost Chat <span class="chat-kind">Eliminated only</span> <span id="ghostBadge" class="chat-badge hidden"></span></span><span class="chev" aria-hidden="true">▼</span></button>
+    <div id="ghostBody" class="chat-body">
+      <p class="muted chat-note">Only eliminated players can see this. Roles are revealed.</p>
+      <div class="chat-messages-wrap">
+        <div id="ghostMessages" class="chat-messages" role="log" aria-label="Ghost chat messages" tabindex="0" onscroll="ghostScrolled()"></div>
+        <button id="ghostNewBtn" class="chat-new-btn hidden" onclick="jumpGhostBottom()">↓ New messages</button>
+      </div>
+      <div class="row"><input id="ghostInput" aria-label="Ghost chat message" placeholder="Whisper to the dead..." maxlength="120" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')ghostSend()"><button onclick="ghostSend()">Send</button></div>
+    </div></div>`;
+}
+function ghostSend() {
+  const inp = $('ghostInput'); if (!inp) return;
+  const text = inp.value.trim(); if (!text) return;
+  send({t:'ghost', text}); inp.value = '';
+}
+function applyGhostState() {
+  const b = $('ghostBody'), t = $('ghostToggle');
+  if (b) b.classList.toggle('hidden', !ghostExpanded);
+  if (t) { t.classList.toggle('collapsed', !ghostExpanded); t.setAttribute('aria-expanded', String(ghostExpanded)); }
+}
+function toggleGhostBox() {
+  ghostExpanded = !ghostExpanded; applyGhostState();
+  if (ghostExpanded) { ghostUnread = 0; setTimeout(jumpGhostBottom, 10); }
+  updateGhostBadge();
+}
+function jumpGhostBottom() {
+  const box = $('ghostMessages'); if (box) box.scrollTop = box.scrollHeight;
+  const p = $('ghostNewBtn'); if (p) p.classList.add('hidden');
+}
+function ghostScrolled() {
+  const b = $('ghostMessages'), p = $('ghostNewBtn');
+  if (b && p && b.scrollTop + b.clientHeight >= b.scrollHeight - 5) p.classList.add('hidden');
+}
+function updateGhostBadge() {
+  const b = $('ghostBadge'); if (!b) return;
+  const show = ghostUnread > 0 && !ghostExpanded;
+  b.classList.toggle('hidden', !show);
+  if (show) b.textContent = ghostUnread > 9 ? '9+' : ghostUnread;
+}
+function renderGhostMessages(v) {
+  const box = $('ghostMessages'), pill = $('ghostNewBtn');
+  if (!box) { ghostSeenInit = false; ghostDomSig = ''; ghostRestore = null; return; }   // card absent (still alive): nothing to track
+  const list = v.ghost || [], len = list.length, n = v.ghostN || 0, sig = list.join('\u001f');
+  let arrived = 0;
+  if (ghostSeenInit && len > 0) arrived = Math.min(len, n >= ghostSeenN ? n - ghostSeenN : n);
+  ghostSeenN = n; ghostSeenInit = true;
+  if (sig !== ghostDomSig) {
+    const fresh = ghostDomSig === '', restore = fresh ? ghostRestore : null, keep = !!(restore && !restore.bottom);
+    const prev = box.scrollTop, wasBottom = prev + box.clientHeight >= box.scrollHeight - 5;
+    box.innerHTML = list.map(msgHTML).join('');
+    const follow = keep ? false : (fresh || (CHAT_STICK_BOTTOM && wasBottom));
+    box.scrollTop = keep ? restore.top : follow ? box.scrollHeight : prev;
+    ghostDomSig = sig;
+    if (ghostExpanded && !follow && pill && (arrived || (restore && restore.pill))) pill.classList.remove('hidden');
+  }
+  ghostRestore = null;
+  if (len === 0 && pill) pill.classList.add('hidden');
+  if (arrived && !ghostExpanded) ghostUnread += arrived;
+  if (ghostExpanded) ghostUnread = 0;
+  applyGhostState(); updateGhostBadge();
+}
+/* MAFIA CHAT: private night chat for the living Mafia team (Shapeshifter included). Only they ever receive these messages. */
+function mafHTML(v) {
+  if (v.phase !== 'night' || !v.you.alive || !isM(v.you.role)) return '';
+  const mates = v.players.filter(x => x.alive && x.role === 'mafia' && x.id !== v.you.id).length;
+  if (!mates) return '';
+  return `<div class="card chat-card maf-card">
+    <button id="mafToggle" class="chat-toggle" aria-expanded="true" aria-controls="mafBody" onclick="toggleMafBox()"><span class="chat-title">🔪 Mafia Chat <span class="chat-kind">Mafia only</span> <span id="mafBadge" class="chat-badge hidden"></span></span><span class="chev" aria-hidden="true">▼</span></button>
+    <div id="mafBody" class="chat-body">
+      <p class="muted chat-note">Only your team can see this. Coordinate here, then pick a target together below.</p>
+      <div class="chat-messages-wrap">
+        <div id="mafMessages" class="chat-messages" role="log" aria-label="Mafia chat messages" tabindex="0" onscroll="mafScrolled()"></div>
+        <button id="mafNewBtn" class="chat-new-btn hidden" onclick="jumpMafBottom()">↓ New messages</button>
+      </div>
+      <div class="row"><input id="mafInput" aria-label="Mafia chat message" placeholder="Plan with your team..." maxlength="120" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')mafSend()"><button onclick="mafSend()">Send</button></div>
+    </div></div>`;
+}
+function mafSend() {
+  const inp = $('mafInput'); if (!inp) return;
+  const text = inp.value.trim(); if (!text) return;
+  send({t:'maf', text}); inp.value = '';
+}
+function applyMafState() {
+  const b = $('mafBody'), t = $('mafToggle');
+  if (b) b.classList.toggle('hidden', !mafExpanded);
+  if (t) { t.classList.toggle('collapsed', !mafExpanded); t.setAttribute('aria-expanded', String(mafExpanded)); }
+}
+function toggleMafBox() {
+  mafExpanded = !mafExpanded; applyMafState();
+  if (mafExpanded) { mafUnread = 0; setTimeout(jumpMafBottom, 10); }
+  updateMafBadge();
+}
+function jumpMafBottom() {
+  const box = $('mafMessages'); if (box) box.scrollTop = box.scrollHeight;
+  const p = $('mafNewBtn'); if (p) p.classList.add('hidden');
+}
+function mafScrolled() {
+  const b = $('mafMessages'), p = $('mafNewBtn');
+  if (b && p && b.scrollTop + b.clientHeight >= b.scrollHeight - 5) p.classList.add('hidden');
+}
+function updateMafBadge() {
+  const b = $('mafBadge'); if (!b) return;
+  const show = mafUnread > 0 && !mafExpanded;
+  b.classList.toggle('hidden', !show);
+  if (show) b.textContent = mafUnread > 9 ? '9+' : mafUnread;
+}
+function renderMafMessages(v) {
+  const box = $('mafMessages'), pill = $('mafNewBtn');
+  if (!box) { mafSeenInit = false; mafDomSig = ''; mafRestore = null; return; }   // card absent (still alive): nothing to track
+  const list = v.maf || [], len = list.length, n = v.mafN || 0, sig = list.join('\u001f');
+  let arrived = 0;
+  if (mafSeenInit && len > 0) arrived = Math.min(len, n >= mafSeenN ? n - mafSeenN : n);
+  mafSeenN = n; mafSeenInit = true;
+  if (sig !== mafDomSig) {
+    const fresh = mafDomSig === '', restore = fresh ? mafRestore : null, keep = !!(restore && !restore.bottom);
+    const prev = box.scrollTop, wasBottom = prev + box.clientHeight >= box.scrollHeight - 5;
+    box.innerHTML = list.map(msgHTML).join('');
+    const follow = keep ? false : (fresh || (CHAT_STICK_BOTTOM && wasBottom));
+    box.scrollTop = keep ? restore.top : follow ? box.scrollHeight : prev;
+    mafDomSig = sig;
+    if (mafExpanded && !follow && pill && (arrived || (restore && restore.pill))) pill.classList.remove('hidden');
+  }
+  mafRestore = null;
+  if (len === 0 && pill) pill.classList.add('hidden');
+  if (arrived && !mafExpanded) mafUnread += arrived;
+  if (mafExpanded) mafUnread = 0;
+  applyMafState(); updateMafBadge();
+}
+function chatSend() {
+  const inp = $('chatInput'); if (!inp) return;
+  const text = inp.value.trim(); if (!text) return;
+  send({t:'chat', text}); inp.value = '';
+}
+function applyChatState() {
+  const b = $('chatBody'), t = $('chatToggle');
+  if (b) b.classList.toggle('hidden', !chatExpanded);
+  if (t) { t.classList.toggle('collapsed', !chatExpanded); t.setAttribute('aria-expanded', String(chatExpanded)); }
+}
+function toggleChatBox() {
+  chatExpanded = !chatExpanded;
+  applyChatState();
+  if (chatExpanded) { chatUnread = 0; setTimeout(jumpChatBottom, 10); }   // user-initiated: show the latest
+  updateChatBadge();
+}
+function jumpChatBottom() {
+  const box = $('chatMessages'); if (box) box.scrollTop = box.scrollHeight;
+  const p = $('chatNewBtn'); if (p) p.classList.add('hidden');
+}
+function chatScrolled() {
+  const b = $('chatMessages'), p = $('chatNewBtn');
+  if (b && p && b.scrollTop + b.clientHeight >= b.scrollHeight - 5) p.classList.add('hidden');
+}
+function updateChatBadge() {
+  const b = $('chatBadge'); if (!b) return;
+  const show = chatUnread > 0 && !chatExpanded;
+  b.classList.toggle('hidden', !show);
+  if (show) b.textContent = chatUnread > 9 ? '9+' : chatUnread;
+}
+function renderChatMessages(v) {
+  const sig = v.chat.join('\u001f'), len = v.chat.length;
+  const box = $('chatMessages'), pill = $('chatNewBtn');
+  // unread accounting is independent of the DOM (so rebuilds and the 30-message cap can't fake or hide messages)
+  const n = v.chatN || 0;
+  let arrived = 0;
+  if (chatSeenInit && len > 0) arrived = Math.min(len, n >= chatSeenN ? n - chatSeenN : n);   // n < chatSeenN means a new room/game
+  if (len === 0) chatUnread = 0;
+  chatSeenSig = sig; chatSeenN = n; chatSeenInit = true;
+  if (box && sig !== chatDomSig) {
+    const fresh = chatDomSig === '';
+    const restore = fresh ? chatRestore : null;   // #bot was rebuilt: put the reader back where they were
+    const keep = !!(restore && !restore.bottom);
+    const prev = box.scrollTop, wasBottom = prev + box.clientHeight >= box.scrollHeight - 5;
+    box.innerHTML = v.chat.map(msgHTML).join('');
+    const follow = keep ? false : (fresh || (CHAT_STICK_BOTTOM && wasBottom));
+    box.scrollTop = keep ? restore.top : follow ? box.scrollHeight : prev;
+    chatDomSig = sig;
+    if (chatExpanded && !follow && pill && (arrived || (restore && restore.pill))) pill.classList.remove('hidden');
+  }
+  chatRestore = null;
+  if (len === 0 && pill) pill.classList.add('hidden');
+  if (arrived && !chatExpanded) chatUnread += arrived;
+  if (chatExpanded) chatUnread = 0;
+  applyChatState(); updateChatBadge();
+}
+
+/* SOUND DRIVER: called from render(), plays on state transitions */
+function driveSounds(v) {
+  if (v.phase !== soundPhase) {
+    if (v.phase === 'night') SFX.night();
+    else if (v.phase === 'day') SFX.day();
+    else if (v.phase === 'over') {
+      const youWin =
+        (v.winner === 'Mafia' && isM(v.you.role)) ||
+        (v.winner === 'Civilians' && !isM(v.you.role) && v.you.role !== 'jester') ||
+        (v.winner === 'Jester' && v.you.role === 'jester');
+      youWin ? SFX.win() : SFX.lose();
+    }
+    soundPhase = v.phase;
+  }
+  const absoluteEnd = v.logBase + v.log.length;
+  if (soundInit && absoluteEnd > soundLog) {
+    const newLogs = v.log.slice(Math.max(0, soundLog - v.logBase));
+    let playedKill = false, playedSave = false;
+    newLogs.forEach(l => {
+      if (/found dead|was voted out|mafia attacked/.test(l)) { if (!playedKill) { SFX.kill(); playedKill = true; } }
+      else if (/victim was protected/.test(l)) { if (!playedSave) { SFX.save(); playedSave = true; } }
+      else if (/reconnected/.test(l)) SFX.ping();
+    });
+  }
+  soundLog = absoluteEnd;
+  const cn = v.chatN || 0;
+  if (soundInit && v.chat.length && cn !== soundChatN) SFX.ping();
+  soundChatN = cn;
+  const gn = v.ghostN || 0;
+  if (soundInit && v.ghost.length && gn !== soundGhostN) SFX.ping();
+  soundGhostN = gn;
+  const mn = v.mafN || 0;
+  if (soundInit && v.maf.length && mn !== soundMafN) SFX.ping();
+  soundMafN = mn;
+  let promptKey = '';
+  if (v.phase === 'judge' || v.phase === 'rebel' || v.phase === 'shapeshift') promptKey = v.phase + ':' + ((v.tie || []).join(','));
+  else if (v.need) promptKey = v.phase + ':' + v.need;
+  if (promptKey && promptKey !== soundPromptKey) SFX.yourTurn();
+  soundPromptKey = promptKey;
+  soundInit = true;
+}
+function toggleSound() {
+  SFX.setEnabled(!SFX.isEnabled());
+  try { localStorage.setItem('mafia-muted', SFX.isEnabled() ? '0' : '1'); } catch(e) {}
+  render();
+}
+const av = n => `<span class="av">${esc(n.charAt(0).toUpperCase())}</span>`;
+
+let roleInfoKey = null;   // lobby: which role's description is showing (display only)
+function roleInfo(k) {
+  roleInfoKey = k;
+  const e = $('roleInfo'), r = ROLES[k]; if (!e || !r) return;
+  e.innerHTML = `${r[2]} <b>${r[0]}</b>${V && V.opts && !V.opts[k] ? ' (off)' : ''}: ${esc(r[1])}`;
+}
+let oraSel = [];
+function oraPick(id) { oraSel = oraSel.includes(id) ? oraSel.filter(x => x !== id) : oraSel.length < 2 ? [...oraSel, id] : [oraSel[1], id]; render(); }
+function oraGo() { if (oraSel.length === 2) { send({t:'oracle', a: oraSel[0], b: oraSel[1]}); oraSel = []; } }
+function btns(v, t) {
+  const ok = p => p.alive && (t === 'vote' ? p.id !== v.you.id && (!v.tie || v.tie.includes(p.id)) : t === 'shapeshift' ? (p.id !== v.you.id && p.role === 'mafia') : v.you.role === 'doctor' || (p.id !== v.you.id && !(isM(v.you.role) && p.role === 'mafia')));
+  return '<div class="grid">' + v.players.filter(ok).map(p => `<button onclick="send({t:'${t}',target:'${p.id}'})">${av(p.name)}<span class="gn">${esc(p.name)}</span></button>`).join('') + (t==='vote'&&!v.tie?`<button class="skip" onclick="send({t:'vote',target:'skip'})">⏭️ Skip vote</button>`:'') + '</div>';
+}
+
+function render() {
+  const v = V; if (!v) return;
+  if (v.phase !== 'night' || v.you.role !== 'oracle' || v.need !== 'act') oraSel = [];
+  document.body.className = v.phase === 'night' ? 'night' : ['day', 'shapeshift', 'judge', 'rebel', 'retrial'].includes(v.phase) ? 'day' : v.phase === 'over' ? 'over' : '';
+  if (v.you.role && v.phase !== 'lobby' && v.phase !== 'over') activateRoleTheme(v.you.role); else resetRoleTheme();
+  if (!$('story')) { app.innerHTML = '<div id="top"></div><div id="story"></div><div id="bot"></div>'; lastBotHtml = ''; lastTopHtml = ''; chatDomSig = ''; ghostDomSig = ''; mafDomSig = ''; }
+  driveSounds(v);
+
+  /* story (typed text) */
+  if (v.phase === 'lobby') { if (seenLog >= 0 || lastKey || roleShown) { resetStory(); $('story').innerHTML = ''; } }
+  else {
+    if (!roleShown) { roleShown = true; const r = ROLES[v.you.role]; say('You are the ' + r[0] + '. ' + r[1], 'role'); }
+    v.log.forEach((l, i) => { if (v.logBase + i > seenLog) { seenLog = v.logBase + i; say(l); } });
+    const key = v.phase + v.round;
+    if (key !== lastKey && (v.phase === 'night' || v.phase === 'day')) {
+      lastKey = key;
+      say(v.phase === 'night' ? '🌙 Night ' + v.round + ' falls. The town sleeps... but not everyone.' : '☀️ Day ' + v.round + '. Discuss, accuse, and vote.', 'phase');
+    }
+    if (v.info && infoRound !== v.round) { infoRound = v.round; say('🔍 ' + v.info, 'info'); }
+    if (v.phase === 'over' && !overShown) { overShown = true; say('🏆 ' + winText(v.winner), 'phase'); }
+  }
+
+  /* top */
+  const r = v.you.role ? ROLES[v.you.role] : null;
+  const pill = { lobby: 'Lobby', night: '🌙 Night ' + v.round, day: '☀️ Day ' + v.round, shapeshift: '👤 Shapeshift', judge: '⚖️ Judge', rebel: '✊ Rebel', retrial: '⚖️ Retrial ' + v.round, over: 'Game over' }[v.phase];
+  endAt = v.left != null ? Date.now() + v.left : 0;
+  const snd = SFX.isEnabled();
+  let t = `<div class="topbar">${v.phase === 'lobby' ? '<h2 class="room-title">Lobby</h2>' : `<div class="room"><span class="room-l">Room</span><span class="code">${v.code}</span></div>`}<button type="button" id="soundBtn" class="icon-btn" onclick="toggleSound()" aria-pressed="${snd}" aria-label="Sound effects" title="Sound effects"><span aria-hidden="true">${snd ? '🔊' : '🔇'}</span></button></div>`;
+  if (v.phase !== 'lobby') t += `<div id="phasebar" class="phasebar"><span class="pill">${pill}</span><span id="tm" class="tm" role="timer"></span></div>`;
+  if (r && v.phase !== 'lobby') t += `<div class="card role" data-rt="${v.phase === 'over' ? 'default' : roleTheme(v.you.role)}"><span class="em" aria-hidden="true">${r[2]}</span><div><b>${r[0]}</b> ${v.you.alive ? '' : '💀'}<div class="muted">${r[1]}</div></div></div>`;
+  if (t !== lastTopHtml) {   // rebuild only on real change so the reveal animation plays once
+    const hadSnd = document.activeElement && document.activeElement.id === 'soundBtn';
+    $('top').innerHTML = t; lastTopHtml = t;
+    if (hadSnd && $('soundBtn')) $('soundBtn').focus({ preventScroll: true });   // keep keyboard focus after toggling
+  }
+  updTimer();
+
+  /* player list (shared by every phase). Alive/out/offline and voted/waiting are all shown as text, never colour alone. */
+  const playersBlock = () => {
+    const alive = v.players.filter(p => p.alive).length;
+    const cards = v.players.map(p => {
+      const showRole = p.role && (!p.alive || v.phase === 'over' || (p.role === 'mafia' && isM(v.you.role)));
+      const me = p.id === v.you.id, kickable = v.host && !me && p.alive;
+      const tags = [];
+      if (me) tags.push('<span class="tag me">You</span>');
+      if (!p.alive) tags.push('<span class="tag out">💀 Out</span>');
+      if (p.dc && p.alive) tags.push('<span class="tag dc">⏳ Reconnecting…</span>');
+      else if (showRole) tags.push(`<span class="tag rl">${ROLES[p.role][2]} ${ROLES[p.role][0]}</span>`);
+      if (p.vt != null) tags.push(p.vt ? '<span class="tag yes">✓ Voted</span>' : '<span class="tag wait">… Waiting</span>');
+      return `<div class="pc${p.alive ? '' : ' dead'}${p.dc && p.alive ? ' dc' : ''}${me ? ' me' : ''}" ${kickable ? `data-id="${esc(p.id)}" ` : ''}>${av(p.name)}<div class="pc-body"><span class="nm" title="${esc(p.name)}">${esc(p.name)}</span>${tags.length ? `<div class="pc-tags">${tags.join('')}</div>` : ''}</div>${kickable ? `<button type="button" class="kick-btn" data-fk="kick-${esc(p.id)}" aria-haspopup="dialog" aria-label="Kick options for ${esc(p.name)}" onclick="kickMenu('${esc(p.id)}')">Kick…</button>` : ''}</div>`;
+    }).join('');
+    return `<div class="card"><div class="sect-h"><h3>Players</h3><span class="count">${v.phase === 'lobby' ? v.players.length + ' of 15' : alive + ' alive'}</span></div><div class="players">${cards}</div>${v.host && v.players.length > 1 ? '<p class="hint">Host: press and hold a player to kick them. Keyboard: Tab to the Kick… button next to a player.</p>' : ''}</div>`;
+  };
+
+  /* bottom */
+  let h = '';
+  let leaveCls = 'gray quiet', startBar = '';
+  if (v.phase === 'lobby') {
+    const n = v.players.length, mc = Math.max(1, Math.floor((n - 1) / 3)), more = Math.max(0, 5 - n);
+    const invite = `<div class="card invite">
+      <button type="button" class="codebtn" onclick="copyCode(this)" aria-label="Room code ${esc(v.code)}. Tap to copy."><span class="cb-code">${v.code}</span><span class="cb-hint">Tap to copy code</span></button>
+      <button class="gray" onclick="copyLink(this)">Copy invite link</button>
+      <p class="muted">Friends join with this code. You need at least 5 players.</p>
+      <span id="copyStatus" class="sr" role="status"></span></div>`;
+    const dist = n < 5 ? `Waiting for players (need 5+). Now: ${n}.` : `🔪 <b>${mc}</b> Mafia · 🧑‍🌾 <b>${n - mc}</b> Civilians (${n} players)`;
+    const chip = k => {
+      const r2 = ROLES[k], on = !!v.opts[k];
+      return v.host
+        ? `<label class="rchip ${on ? 'on' : ''}" onclick="roleInfo('${k}')"><input type="checkbox" data-fk="role-${k}" ${on ? 'checked' : ''} onchange="setOpt('${k}', this.checked)" onfocus="roleInfo('${k}')"><span aria-hidden="true">${r2[2]}</span><span class="rn">${r2[0]}</span><span class="rtick" aria-hidden="true">✓</span></label>`
+        : `<button type="button" class="rchip ${on ? 'on' : ''}" data-fk="role-${k}" aria-label="${r2[0]}, ${on ? 'on' : 'off'}" onclick="roleInfo('${k}')"><span aria-hidden="true">${r2[2]}</span><span class="rn">${r2[0]}</span><span class="rtick" aria-hidden="true">✓</span></button>`;
+    };
+    const grp = (title, ks) => `<p class="section-h">${title}</p><div class="rchips${ks.length === 1 ? ' solo' : ''}">${ks.map(chip).join('')}</div>`;
+    const infoKey = roleInfoKey && ROLES[roleInfoKey] ? roleInfoKey : null;
+    const info = infoKey ? `${ROLES[infoKey][2]} <b>${ROLES[infoKey][0]}</b>${v.opts[infoKey] ? '' : ' (off)'}: ${esc(ROLES[infoKey][1])}` : (v.host ? 'Tick the roles you want in this game. Tap a role to read what it does.' : 'Tap a role to read what it does.');
+    const slots = n - mc;
+    const lost = OPTIONAL_ROLES.filter(k => k !== 'shapeshifter' && v.opts[k]).slice(Math.max(0, slots)).map(k => ROLES[k][0]);
+    if (v.opts.shapeshifter && mc < 2) lost.push('Shapeshifter (needs 7+ players)');
+    const settings = `<div class="card"><div class="sect-h"><h3>Roles</h3></div><p class="muted">${dist}</p>
+      ${grp('Mafia roles', ['shapeshifter'])}${grp('Civilian roles', ['doctor', 'detective', 'granny', 'jester'])}${grp('New civilian roles', ['guard', 'judge', 'mayor', 'rebel', 'oracle'])}
+      <p id="roleInfo" class="role-info" aria-live="polite">${info}</p>
+      ${lost.length ? `<div class="alert warn" style="margin-bottom:0">⚠️ Not enough players for: ${lost.join(', ')}</div>` : ''}
+      <div class="setrow">${v.host ? `<label for="timeSel">⏱ Day voting time</label><select id="timeSel" data-fk="time" onchange="setOpt('time', +this.value)">${TIMES.map(tt => `<option value="${tt}" ${tt === v.opts.time ? 'selected' : ''}>${tt} seconds</option>`).join('')}</select>` : `<span class="lbl">⏱ Day voting time</span><span>${v.opts.time} seconds</span>`}</div></div>`;
+    h += `<div class="lobby"><div class="lcol">${invite}${playersBlock()}</div><div class="lcol">${settings}${chatHTML(v)}</div></div>`;
+    startBar = v.host
+      ? `<div class="startbar"><p class="start-info">${more ? `Need ${more} more player${more > 1 ? 's' : ''} to start` : `${n} players ready`}</p><button class="start-btn" ${more ? 'disabled' : ''} onclick="start()">Start Game</button></div>`
+      : `<div class="startbar"><p class="start-info">Waiting for the host to start…</p></div>`;
+  } else {
+    if (v.phase === 'over') {
+      h += `<div class="card win">🏆 ${winText(v.winner)}</div>`;
+      if (v.host) h += '<button onclick="again()">Play Again</button>';
+    }
+    if (v.phase === 'night') {
+      h += mafHTML(v);
+      if (v.need === 'act' && v.you.role === 'oracle') {
+        h += `<p class="prompt">Pick two players to compare <span class="count">(${oraSel.length}/2)</span></p><div class="grid">` + v.players.filter(p => p.alive).map(p => `<button class="${oraSel.includes(p.id) ? 'sel' : ''}" aria-pressed="${oraSel.includes(p.id)}" onclick="oraPick('${p.id}')">${av(p.name)}<span class="gn">${esc(p.name)}</span></button>`).join('') + `</div>`;
+        h += `<button class="act" ${oraSel.length === 2 ? '' : 'disabled'} onclick="oraGo()">🔮 Reveal</button>`;
+        h += `<button class="gray" onclick="send({t:'oraclePass'})">Not tonight</button>`;
+      }
+      else if (v.need === 'act') h += `<p class="prompt">${isM(v.you.role)?'Choose a victim':v.you.role==='doctor'?'Choose who to save':v.you.role==='guard'?'Choose who to protect':'Choose who to investigate'}:</p>` + btns(v, 'act');
+      else h += '<p class="status">Waiting for others… 😴</p>';
+    }
+    if (v.phase === 'day' || v.phase === 'retrial') {
+      h += chatHTML(v);
+      if (v.silenced && v.you.alive) h += `<p class="status">✊ You are silenced today. You cannot vote.</p>`;
+      if (v.need === 'vote') h += `<p class="prompt">${v.tie ? '⚖️ Retrial: vote for one of the two' : 'Cast your vote'}:</p>` + btns(v, 'vote');
+      else if (v.counting) h += `<p class="status">🗳️ Counting the votes…</p>`;
+      else if (v.voted) h += `<p class="status yes">✓ Voted. Waiting for ${v.waiting} more…</p>`;
+    }
+    if (v.phase === 'judge') {
+      const nm2 = v.tie.map(id => (v.players.find(p => p.id === id) || {}).name).join(' and ');
+      h += `<div class="prompt-card"><h3>⚖️ Tie: ${esc(nm2)}</h3><p>Call a retrial between them? (once per game)</p><button onclick="send({t:'judge',call:true})">Call retrial</button><button class="gray" onclick="send({t:'judge',call:false})">No retrial</button></div>`;
+    }
+    if (v.phase === 'rebel') {
+      h += `<div class="prompt-card rebel"><h3>✊ You are about to be executed!</h3><p>Refuse? You survive, but lose your next day vote. (once per game)</p><button onclick="send({t:'rebel',refuse:true})">Refuse execution</button><button class="gray" onclick="send({t:'rebel',refuse:false})">Accept fate</button></div>`;
+    }
+    if (v.phase === 'shapeshift') {
+      h += `<p class="prompt" style="color:var(--role-accent)">You were voted out! Choose a Mafia to die in your place (name swap):</p>` + btns(v, 'shapeshift');
+    }
+    h += ghostHTML(v);
+    h += playersBlock();
+  }
+  h += startBar;
+  h += `<button class="${leaveCls}" style="margin-top:1.25rem" onclick="leaveRoom()">${v.host?'End Game':v.phase==='over'?'Return to Menu':'Leave Room'}</button>`;
+  if (h !== lastBotHtml) {   // rebuild only when the markup really changed
+    const oi = $('chatInput'), val = oi ? oi.value : '', hadFocus = oi && document.activeElement === oi;
+    const ob = $('chatMessages'), op = $('chatNewBtn');
+    chatRestore = (ob && chatExpanded && chatDomSig !== '') ? { top: ob.scrollTop, bottom: ob.scrollTop + ob.clientHeight >= ob.scrollHeight - 5, pill: !!op && !op.classList.contains('hidden') } : null;
+    const gi = $('ghostInput'), gval = gi ? gi.value : '', gFocus = gi && document.activeElement === gi;
+    const gb = $('ghostMessages'), gp = $('ghostNewBtn');
+    ghostRestore = (gb && ghostExpanded && ghostDomSig !== '') ? { top: gb.scrollTop, bottom: gb.scrollTop + gb.clientHeight >= gb.scrollHeight - 5, pill: !!gp && !gp.classList.contains('hidden') } : null;
+    const mi = $('mafInput'), mval = mi ? mi.value : '', mFocus = mi && document.activeElement === mi;
+    const mb = $('mafMessages'), mp = $('mafNewBtn');
+    mafRestore = (mb && mafExpanded && mafDomSig !== '') ? { top: mb.scrollTop, bottom: mb.scrollTop + mb.clientHeight >= mb.scrollHeight - 5, pill: !!mp && !mp.classList.contains('hidden') } : null;
+    const ae = document.activeElement, fk = ae && ae.dataset && ae.dataset.fk && $('bot').contains(ae) ? ae.dataset.fk : null;   // keep keyboard focus across rebuilds
+    $('bot').innerHTML = h; lastBotHtml = h; chatDomSig = ''; ghostDomSig = ''; mafDomSig = '';
+    const ni = $('chatInput'); if (ni && val) { ni.value = val; if (hadFocus) ni.focus(); }
+    const ngi = $('ghostInput'); if (ngi && gval) { ngi.value = gval; if (gFocus) ngi.focus(); }
+    const nmi = $('mafInput'); if (nmi && mval) { nmi.value = mval; if (mFocus) nmi.focus(); }
+    if (fk) { const el = [...$('bot').querySelectorAll('[data-fk]')].find(x => x.dataset.fk === fk); if (el) el.focus({ preventScroll: true }); }
+  }
+  renderChatMessages(v);
+  renderGhostMessages(v);
+  renderMafMessages(v);
+}
+
+
+function updTimer() {
+  const e = $('tm'); if (!e) return;
+  const pb = $('phasebar');
+  if (!V || !['day', 'night', 'shapeshift', 'judge', 'rebel', 'retrial'].includes(V.phase) || !endAt || V.counting || (V.phase === 'night' && !V.you.alive)) { e.textContent = ''; e.className = 'tm'; if (pb) pb.classList.remove('urgent'); return; }
+  const s = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+  const low = s <= 10;
+  e.textContent = (low ? '⚠ ' : '') + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');   // the warning sign means low time isn't shown by colour alone
+  e.className = 'tm' + (low ? ' low' : '');
+  if (pb) pb.classList.toggle('urgent', low);
+}
+setInterval(() => {
+  updTimer();
+  if (isHost && G) {
+    const now = Date.now();
+    G.players.filter(p => p.dcAt && now - p.dcAt > GRACE_MS && p !== G.players[0])
+              .forEach(p => { p.dcAt = null; leave(p, 'timeout'); });
+    if (G && G.phase === 'shapeshift' && G.deadline && now >= G.deadline) shiftTimeout();
+    if (G && G.phase === 'retrial' && G.deadline && now >= G.deadline) resolveRetrial();
+    if (G && G.phase === 'judge' && G.deadline && now >= G.deadline) judgeResponse(false);
+    if (G && G.phase === 'rebel' && G.deadline && now >= G.deadline) rebelResponse(false);
+    if (G && G.phase === 'night' && G.factAt && now >= G.factAt) {   // narrator line (before the auto-resolve check so sunrise follows it)
+      G.factAt = null; G.log.push(nextNightLine()); push();
+    }
+    if (G && G.phase === 'night' && G.deadline && now >= G.deadline) {   // idle players are skipped
+      G.players.forEach(p => { if (needsAct(p) && !(p.id in G.acts)) G.acts[p.id] = null; });
+      G.deadline = null; resolveNight();
+    }
+    // host ends the vote when time runs out (players who didn't vote count as abstaining)
+    if (G && G.phase === 'day' && G.deadline && Date.now() >= G.deadline) resolveVote();
+  }
+}, 500);
+
+let ovReturnId = null;
+function closeOv() {
+  const o = $('ov');
+  app.removeAttribute('inert');
+  if (!o) return;
+  o.remove();
+  const id = ovReturnId; ovReturnId = null;
+  if (id) { const el = [...document.querySelectorAll('.kick-btn')].find(x => x.dataset.fk === 'kick-' + id); if (el) el.focus({ preventScroll: true }); }
+}
+function kickMenu(id) {
+  const p = V && V.players.find(x => x.id === id);
+  if (!p || !isHost) return;
+  closeOv();
+  ovReturnId = id;
+  const o = document.createElement('div'); o.id = 'ov';
+  o.innerHTML = `<div class="card" role="dialog" aria-modal="true" aria-labelledby="ovTitle" aria-describedby="ovDesc"><h3 id="ovTitle">${esc(p.name)}</h3><p id="ovDesc" class="muted">Kick this player out of the room?</p><button class="danger" id="kk">👢 Kick player</button><button class="gray" id="kc">Cancel</button></div>`;
+  const opened = Date.now();
+  o.onclick = e => { if (e.target === o && Date.now() - opened > 500) closeOv(); };
+  o.querySelector('#kk').onclick = () => { if (Date.now() - opened < 250) return; kick(id); ovReturnId = null; closeOv(); };   // only the explicit Kick button kicks
+  o.querySelector('#kc').onclick = closeOv;
+  document.body.appendChild(o);
+  app.setAttribute('inert', '');
+  o.querySelector('#kc').focus();   // focus starts on Cancel so a stray Enter can never kick
+}
+function lpStart(e) {
+  const el = e.target.closest && e.target.closest('.pc[data-id]');
+  if (!el || !isHost || !V) return;
+  clearTimeout(lpT);
+  const id = el.dataset.id;
+  lpT = setTimeout(() => kickMenu(id), 600);
+}
+function lpEnd() { clearTimeout(lpT); }
+document.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const oc = btn.getAttribute('onclick') || '';
+  if (btn.closest('.grid') || /oraGo|oraclePass|'judge'|'rebel'|chatSend|ghostSend|mafSend/.test(oc)) return;   // these already sound via send() / the chat ping
+  SFX.click();
+}, { passive: true });
+['touchstart', 'mousedown'].forEach(ev => app.addEventListener(ev, lpStart, { passive: true }));
+['touchend', 'touchmove', 'touchcancel', 'mouseup', 'mouseleave'].forEach(ev => app.addEventListener(ev, lpEnd, { passive: true }));
+document.addEventListener('keydown', e => {
+  const o = $('ov');
+  if (o) {
+    if (e.key === 'Escape') { e.preventDefault(); closeOv(); return; }   // Escape closes without kicking
+    if (e.key === 'Tab') {   // keep focus inside the dialog
+      const f = [...o.querySelectorAll('button')], first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!o.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+    }
+    return;
+  }
+});
+app.addEventListener('contextmenu', e => { if (e.target.closest && e.target.closest('.pc[data-id]')) e.preventDefault(); });
+
+home();
+</script>
+</body>
+</html>
